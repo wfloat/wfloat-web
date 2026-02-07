@@ -1,22 +1,17 @@
-export type EmscriptenModule = {
-  // memory + helpers
-  HEAPU8: Uint8Array;
+export interface SherpaModule {
+  _malloc(size: number): number;
+  _free(ptr: number): void;
+
+  lengthBytesUTF8(str: string): number;
+  stringToUTF8(str: string, outPtr: number, maxBytesToWrite: number): void;
+  setValue(ptr: number, value: number, type: "i8*" | "i32" | "float"): void;
+
   HEAP32: Int32Array;
   HEAPF32: Float32Array;
 
-  _malloc(n: number): number;
-  _free(ptr: number): void;
+  // Custom helper in your build (as used in the JS)
+  _CopyHeap(srcPtr: number, len: number, dstPtr: number): void;
 
-  lengthBytesUTF8(s: string): number;
-  stringToUTF8(str: string, outPtr: number, maxBytesToWrite: number): void;
-  UTF8ToString(ptr: number): string;
-
-  setValue(ptr: number, value: number, type: "i8*" | "i32" | "float"): void;
-
-  // optional helper in your build; if absent we fallback to HEAPU8 copy
-  _CopyHeap?: (src: number, len: number, dst: number) => void;
-
-  // sherpa onnx exports
   _SherpaOnnxCreateOfflineTts(configPtr: number): number;
   _SherpaOnnxDestroyOfflineTts(handle: number): void;
   _SherpaOnnxOfflineTtsSampleRate(handle: number): number;
@@ -29,7 +24,7 @@ export type EmscriptenModule = {
     speed: number,
   ): number;
 
-  _SherpaOnnxDestroyOfflineTtsGeneratedAudio(ptr: number): void;
+  _SherpaOnnxDestroyOfflineTtsGeneratedAudio(h: number): void;
 
   _SherpaOnnxWriteWave(
     samplesPtr: number,
@@ -37,55 +32,16 @@ export type EmscriptenModule = {
     sampleRate: number,
     filenamePtr: number,
   ): void;
-
-  _SherpaOnnxGetVersionStr(): number;
-};
-
-type AnyConfigNode = {
-  ptr: number;
-  len?: number;
-  buffer?: number;
-  config?: AnyConfigNode;
-  matcha?: AnyConfigNode;
-  kokoro?: AnyConfigNode;
-  kitten?: AnyConfigNode;
-};
-
-function copyHeap(Module: EmscriptenModule, src: number, len: number, dst: number) {
-  if (typeof Module._CopyHeap === "function") {
-    Module._CopyHeap(src, len, dst);
-    return;
-  }
-  // Fallback: memcpy via HEAPU8
-  Module.HEAPU8.set(Module.HEAPU8.subarray(src, src + len), dst);
 }
 
-function mallocUtf8(Module: EmscriptenModule, s: string): { ptr: number; len: number } {
-  const len = Module.lengthBytesUTF8(s) + 1;
-  const ptr = Module._malloc(len);
-  Module.stringToUTF8(s, ptr, len);
-  return { ptr, len };
-}
-
-function freeConfig(node: AnyConfigNode, Module: EmscriptenModule) {
-  if (node.buffer) Module._free(node.buffer);
-  if (node.config) freeConfig(node.config, Module);
-  if (node.matcha) freeConfig(node.matcha, Module);
-  if (node.kokoro) freeConfig(node.kokoro, Module);
-  if (node.kitten) freeConfig(node.kitten, Module);
-  Module._free(node.ptr);
-}
-
-// ---------- Config types ----------
 export interface OfflineTtsVitsModelConfig {
   model?: string;
   lexicon?: string;
   tokens?: string;
+  noiseScale?: number;
+  noiseScaleW?: number;
+  lengthScale?: number;
   dataDir?: string;
-  dictDir?: string;
-  noiseScale?: number; // default 0.667
-  noiseScaleW?: number; // default 0.8
-  lengthScale?: number; // default 1.0
 }
 
 export interface OfflineTtsMatchaModelConfig {
@@ -93,21 +49,19 @@ export interface OfflineTtsMatchaModelConfig {
   vocoder?: string;
   lexicon?: string;
   tokens?: string;
+  noiseScale?: number;
+  lengthScale?: number;
   dataDir?: string;
-  dictDir?: string;
-  noiseScale?: number; // default 0.667
-  lengthScale?: number; // default 1.0
 }
 
 export interface OfflineTtsKokoroModelConfig {
   model?: string;
   voices?: string;
   tokens?: string;
+  lengthScale?: number;
   dataDir?: string;
-  dictDir?: string;
   lexicon?: string;
   lang?: string;
-  lengthScale?: number; // default 1.0
 }
 
 export interface OfflineTtsKittenModelConfig {
@@ -115,7 +69,30 @@ export interface OfflineTtsKittenModelConfig {
   voices?: string;
   tokens?: string;
   dataDir?: string;
-  lengthScale?: number; // default 1.0
+  lengthScale?: number;
+}
+
+export interface OfflineTtsZipVoiceModelConfig {
+  tokens?: string;
+  encoder?: string;
+  decoder?: string;
+  vocoder?: string;
+  dataDir?: string;
+  lexicon?: string;
+  featScale?: number;
+  tShift?: number;
+  targetRMS?: number;
+  guidanceScale?: number;
+}
+
+export interface OfflineTtsPocketModelConfig {
+  lmFlow?: string;
+  lmMain?: string;
+  encoder?: string;
+  decoder?: string;
+  textConditioner?: string;
+  vocabJson?: string;
+  tokenScoresJson?: string;
 }
 
 export interface OfflineTtsModelConfig {
@@ -123,21 +100,24 @@ export interface OfflineTtsModelConfig {
   offlineTtsMatchaModelConfig?: OfflineTtsMatchaModelConfig;
   offlineTtsKokoroModelConfig?: OfflineTtsKokoroModelConfig;
   offlineTtsKittenModelConfig?: OfflineTtsKittenModelConfig;
+  offlineTtsZipVoiceModelConfig?: OfflineTtsZipVoiceModelConfig;
+  offlineTtsPocketModelConfig?: OfflineTtsPocketModelConfig;
 
-  numThreads?: number; // default 1
-  debug?: number; // default 0
-  provider?: string; // default "cpu"
+  numThreads?: number;
+  debug?: number;
+  provider?: string;
 }
 
 export interface OfflineTtsConfig {
-  offlineTtsModelConfig: OfflineTtsModelConfig;
+  offlineTtsModelConfig?: OfflineTtsModelConfig;
+
   ruleFsts?: string;
   ruleFars?: string;
-  maxNumSentences?: number; // default 1
-  silenceScale?: number; // default 0.2
+  maxNumSentences?: number;
+  silenceScale?: number;
 }
 
-export interface GenerateConfig {
+export interface OfflineTtsGenerateConfig {
   text: string;
   sid: number;
   speed: number;
@@ -148,42 +128,92 @@ export interface GeneratedAudio {
   sampleRate: number;
 }
 
-// ---------- Low-level struct builders (same layout as your JS) ----------
+type AllocatedConfig = {
+  buffer?: number;
+  ptr: number;
+  len?: number;
+  config?: AllocatedConfig;
+  matcha?: AllocatedConfig;
+  kokoro?: AllocatedConfig;
+  kitten?: AllocatedConfig;
+  zipvoice?: AllocatedConfig;
+  pocket?: AllocatedConfig;
+};
+
+function freeConfig(config: AllocatedConfig, Module: SherpaModule): void {
+  if ("buffer" in config && typeof config.buffer === "number") {
+    Module._free(config.buffer);
+  }
+
+  if ("config" in config && config.config) {
+    freeConfig(config.config, Module);
+  }
+
+  if ("matcha" in config && config.matcha) {
+    freeConfig(config.matcha, Module);
+  }
+
+  if ("kokoro" in config && config.kokoro) {
+    freeConfig(config.kokoro, Module);
+  }
+
+  if ("kitten" in config && config.kitten) {
+    freeConfig(config.kitten, Module);
+  }
+
+  if ("zipvoice" in config && config.zipvoice) {
+    freeConfig(config.zipvoice, Module);
+  }
+
+  if ("pocket" in config && config.pocket) {
+    freeConfig(config.pocket, Module);
+  }
+
+  Module._free(config.ptr);
+}
+
+// The user should free the returned pointers
 function initSherpaOnnxOfflineTtsVitsModelConfig(
   config: OfflineTtsVitsModelConfig,
-  Module: EmscriptenModule,
-) {
-  const modelLen = Module.lengthBytesUTF8(config.model ?? "") + 1;
-  const lexiconLen = Module.lengthBytesUTF8(config.lexicon ?? "") + 1;
-  const tokensLen = Module.lengthBytesUTF8(config.tokens ?? "") + 1;
-  const dataDirLen = Module.lengthBytesUTF8(config.dataDir ?? "") + 1;
-  const dictDirLen = Module.lengthBytesUTF8(config.dictDir ?? "") + 1;
+  Module: SherpaModule,
+): AllocatedConfig {
+  const modelStr = config.model ?? "";
+  const lexiconStr = config.lexicon ?? "";
+  const tokensStr = config.tokens ?? "";
+  const dataDirStr = config.dataDir ?? "";
+  const dictDir = "";
+
+  const modelLen = Module.lengthBytesUTF8(modelStr) + 1;
+  const lexiconLen = Module.lengthBytesUTF8(lexiconStr) + 1;
+  const tokensLen = Module.lengthBytesUTF8(tokensStr) + 1;
+  const dataDirLen = Module.lengthBytesUTF8(dataDirStr) + 1;
+  const dictDirLen = Module.lengthBytesUTF8(dictDir) + 1;
 
   const n = modelLen + lexiconLen + tokensLen + dataDirLen + dictDirLen;
+
   const buffer = Module._malloc(n);
 
-  // 8 * 4 bytes = 32 bytes
   const len = 8 * 4;
   const ptr = Module._malloc(len);
 
   let offset = 0;
-  Module.stringToUTF8(config.model ?? "", buffer + offset, modelLen);
+  Module.stringToUTF8(modelStr, buffer + offset, modelLen);
   offset += modelLen;
 
-  Module.stringToUTF8(config.lexicon ?? "", buffer + offset, lexiconLen);
+  Module.stringToUTF8(lexiconStr, buffer + offset, lexiconLen);
   offset += lexiconLen;
 
-  Module.stringToUTF8(config.tokens ?? "", buffer + offset, tokensLen);
+  Module.stringToUTF8(tokensStr, buffer + offset, tokensLen);
   offset += tokensLen;
 
-  Module.stringToUTF8(config.dataDir ?? "", buffer + offset, dataDirLen);
+  Module.stringToUTF8(dataDirStr, buffer + offset, dataDirLen);
   offset += dataDirLen;
 
-  Module.stringToUTF8(config.dictDir ?? "", buffer + offset, dictDirLen);
+  Module.stringToUTF8(dictDir, buffer + offset, dictDirLen);
   offset += dictDirLen;
 
   offset = 0;
-  Module.setValue(ptr + 0, buffer + offset, "i8*");
+  Module.setValue(ptr, buffer + offset, "i8*");
   offset += modelLen;
 
   Module.setValue(ptr + 4, buffer + offset, "i8*");
@@ -195,10 +225,9 @@ function initSherpaOnnxOfflineTtsVitsModelConfig(
   Module.setValue(ptr + 12, buffer + offset, "i8*");
   offset += dataDirLen;
 
-  Module.setValue(ptr + 16, (config.noiseScale ?? 0.667) as number, "float");
-  Module.setValue(ptr + 20, (config.noiseScaleW ?? 0.8) as number, "float");
-  Module.setValue(ptr + 24, (config.lengthScale ?? 1.0) as number, "float");
-
+  Module.setValue(ptr + 16, config.noiseScale ?? 0.667, "float");
+  Module.setValue(ptr + 20, config.noiseScaleW ?? 0.8, "float");
+  Module.setValue(ptr + 24, config.lengthScale ?? 1.0, "float");
   Module.setValue(ptr + 28, buffer + offset, "i8*");
   offset += dictDirLen;
 
@@ -207,42 +236,50 @@ function initSherpaOnnxOfflineTtsVitsModelConfig(
 
 function initSherpaOnnxOfflineTtsMatchaModelConfig(
   config: OfflineTtsMatchaModelConfig,
-  Module: EmscriptenModule,
-) {
-  const acousticModelLen = Module.lengthBytesUTF8(config.acousticModel ?? "") + 1;
-  const vocoderLen = Module.lengthBytesUTF8(config.vocoder ?? "") + 1;
-  const lexiconLen = Module.lengthBytesUTF8(config.lexicon ?? "") + 1;
-  const tokensLen = Module.lengthBytesUTF8(config.tokens ?? "") + 1;
-  const dataDirLen = Module.lengthBytesUTF8(config.dataDir ?? "") + 1;
-  const dictDirLen = Module.lengthBytesUTF8(config.dictDir ?? "") + 1;
+  Module: SherpaModule,
+): AllocatedConfig {
+  const acousticModelStr = config.acousticModel ?? "";
+  const vocoderStr = config.vocoder ?? "";
+  const lexiconStr = config.lexicon ?? "";
+  const tokensStr = config.tokens ?? "";
+  const dataDirStr = config.dataDir ?? "";
+  const dictDir = "";
+
+  const acousticModelLen = Module.lengthBytesUTF8(acousticModelStr) + 1;
+  const vocoderLen = Module.lengthBytesUTF8(vocoderStr) + 1;
+  const lexiconLen = Module.lengthBytesUTF8(lexiconStr) + 1;
+  const tokensLen = Module.lengthBytesUTF8(tokensStr) + 1;
+  const dataDirLen = Module.lengthBytesUTF8(dataDirStr) + 1;
+  const dictDirLen = Module.lengthBytesUTF8(dictDir) + 1;
 
   const n = acousticModelLen + vocoderLen + lexiconLen + tokensLen + dataDirLen + dictDirLen;
+
   const buffer = Module._malloc(n);
 
   const len = 8 * 4;
   const ptr = Module._malloc(len);
 
   let offset = 0;
-  Module.stringToUTF8(config.acousticModel ?? "", buffer + offset, acousticModelLen);
+  Module.stringToUTF8(acousticModelStr, buffer + offset, acousticModelLen);
   offset += acousticModelLen;
 
-  Module.stringToUTF8(config.vocoder ?? "", buffer + offset, vocoderLen);
+  Module.stringToUTF8(vocoderStr, buffer + offset, vocoderLen);
   offset += vocoderLen;
 
-  Module.stringToUTF8(config.lexicon ?? "", buffer + offset, lexiconLen);
+  Module.stringToUTF8(lexiconStr, buffer + offset, lexiconLen);
   offset += lexiconLen;
 
-  Module.stringToUTF8(config.tokens ?? "", buffer + offset, tokensLen);
+  Module.stringToUTF8(tokensStr, buffer + offset, tokensLen);
   offset += tokensLen;
 
-  Module.stringToUTF8(config.dataDir ?? "", buffer + offset, dataDirLen);
+  Module.stringToUTF8(dataDirStr, buffer + offset, dataDirLen);
   offset += dataDirLen;
 
-  Module.stringToUTF8(config.dictDir ?? "", buffer + offset, dictDirLen);
+  Module.stringToUTF8(dictDir, buffer + offset, dictDirLen);
   offset += dictDirLen;
 
   offset = 0;
-  Module.setValue(ptr + 0, buffer + offset, "i8*");
+  Module.setValue(ptr, buffer + offset, "i8*");
   offset += acousticModelLen;
 
   Module.setValue(ptr + 4, buffer + offset, "i8*");
@@ -257,9 +294,8 @@ function initSherpaOnnxOfflineTtsMatchaModelConfig(
   Module.setValue(ptr + 16, buffer + offset, "i8*");
   offset += dataDirLen;
 
-  Module.setValue(ptr + 20, (config.noiseScale ?? 0.667) as number, "float");
-  Module.setValue(ptr + 24, (config.lengthScale ?? 1.0) as number, "float");
-
+  Module.setValue(ptr + 20, config.noiseScale ?? 0.667, "float");
+  Module.setValue(ptr + 24, config.lengthScale ?? 1.0, "float");
   Module.setValue(ptr + 28, buffer + offset, "i8*");
   offset += dictDirLen;
 
@@ -268,46 +304,55 @@ function initSherpaOnnxOfflineTtsMatchaModelConfig(
 
 function initSherpaOnnxOfflineTtsKokoroModelConfig(
   config: OfflineTtsKokoroModelConfig,
-  Module: EmscriptenModule,
-) {
-  const modelLen = Module.lengthBytesUTF8(config.model ?? "") + 1;
-  const voicesLen = Module.lengthBytesUTF8(config.voices ?? "") + 1;
-  const tokensLen = Module.lengthBytesUTF8(config.tokens ?? "") + 1;
-  const dataDirLen = Module.lengthBytesUTF8(config.dataDir ?? "") + 1;
-  const dictDirLen = Module.lengthBytesUTF8(config.dictDir ?? "") + 1;
-  const lexiconLen = Module.lengthBytesUTF8(config.lexicon ?? "") + 1;
-  const langLen = Module.lengthBytesUTF8(config.lang ?? "") + 1;
+  Module: SherpaModule,
+): AllocatedConfig {
+  const modelStr = config.model ?? "";
+  const voicesStr = config.voices ?? "";
+  const tokensStr = config.tokens ?? "";
+  const dataDirStr = config.dataDir ?? "";
+  const lexiconStr = config.lexicon ?? "";
+  const langStr = config.lang ?? "";
+  const dictDir = "";
+
+  const modelLen = Module.lengthBytesUTF8(modelStr) + 1;
+  const voicesLen = Module.lengthBytesUTF8(voicesStr) + 1;
+  const tokensLen = Module.lengthBytesUTF8(tokensStr) + 1;
+  const dataDirLen = Module.lengthBytesUTF8(dataDirStr) + 1;
+  const dictDirLen = Module.lengthBytesUTF8(dictDir) + 1;
+  const lexiconLen = Module.lengthBytesUTF8(lexiconStr) + 1;
+  const langLen = Module.lengthBytesUTF8(langStr) + 1;
 
   const n = modelLen + voicesLen + tokensLen + dataDirLen + dictDirLen + lexiconLen + langLen;
+
   const buffer = Module._malloc(n);
 
   const len = 8 * 4;
   const ptr = Module._malloc(len);
 
   let offset = 0;
-  Module.stringToUTF8(config.model ?? "", buffer + offset, modelLen);
+  Module.stringToUTF8(modelStr, buffer + offset, modelLen);
   offset += modelLen;
 
-  Module.stringToUTF8(config.voices ?? "", buffer + offset, voicesLen);
+  Module.stringToUTF8(voicesStr, buffer + offset, voicesLen);
   offset += voicesLen;
 
-  Module.stringToUTF8(config.tokens ?? "", buffer + offset, tokensLen);
+  Module.stringToUTF8(tokensStr, buffer + offset, tokensLen);
   offset += tokensLen;
 
-  Module.stringToUTF8(config.dataDir ?? "", buffer + offset, dataDirLen);
+  Module.stringToUTF8(dataDirStr, buffer + offset, dataDirLen);
   offset += dataDirLen;
 
-  Module.stringToUTF8(config.dictDir ?? "", buffer + offset, dictDirLen);
+  Module.stringToUTF8(dictDir, buffer + offset, dictDirLen);
   offset += dictDirLen;
 
-  Module.stringToUTF8(config.lexicon ?? "", buffer + offset, lexiconLen);
+  Module.stringToUTF8(lexiconStr, buffer + offset, lexiconLen);
   offset += lexiconLen;
 
-  Module.stringToUTF8(config.lang ?? "", buffer + offset, langLen);
+  Module.stringToUTF8(langStr, buffer + offset, langLen);
   offset += langLen;
 
   offset = 0;
-  Module.setValue(ptr + 0, buffer + offset, "i8*");
+  Module.setValue(ptr, buffer + offset, "i8*");
   offset += modelLen;
 
   Module.setValue(ptr + 4, buffer + offset, "i8*");
@@ -319,7 +364,7 @@ function initSherpaOnnxOfflineTtsKokoroModelConfig(
   Module.setValue(ptr + 12, buffer + offset, "i8*");
   offset += dataDirLen;
 
-  Module.setValue(ptr + 16, (config.lengthScale ?? 1.0) as number, "float");
+  Module.setValue(ptr + 16, config.lengthScale ?? 1.0, "float");
 
   Module.setValue(ptr + 20, buffer + offset, "i8*");
   offset += dictDirLen;
@@ -335,35 +380,40 @@ function initSherpaOnnxOfflineTtsKokoroModelConfig(
 
 function initSherpaOnnxOfflineTtsKittenModelConfig(
   config: OfflineTtsKittenModelConfig,
-  Module: EmscriptenModule,
-) {
-  const modelLen = Module.lengthBytesUTF8(config.model ?? "") + 1;
-  const voicesLen = Module.lengthBytesUTF8(config.voices ?? "") + 1;
-  const tokensLen = Module.lengthBytesUTF8(config.tokens ?? "") + 1;
-  const dataDirLen = Module.lengthBytesUTF8(config.dataDir ?? "") + 1;
+  Module: SherpaModule,
+): AllocatedConfig {
+  const modelStr = config.model ?? "";
+  const voicesStr = config.voices ?? "";
+  const tokensStr = config.tokens ?? "";
+  const dataDirStr = config.dataDir ?? "";
+
+  const modelLen = Module.lengthBytesUTF8(modelStr) + 1;
+  const voicesLen = Module.lengthBytesUTF8(voicesStr) + 1;
+  const tokensLen = Module.lengthBytesUTF8(tokensStr) + 1;
+  const dataDirLen = Module.lengthBytesUTF8(dataDirStr) + 1;
 
   const n = modelLen + voicesLen + tokensLen + dataDirLen;
+
   const buffer = Module._malloc(n);
 
-  // 5 * 4 bytes = 20 bytes
   const len = 5 * 4;
   const ptr = Module._malloc(len);
 
   let offset = 0;
-  Module.stringToUTF8(config.model ?? "", buffer + offset, modelLen);
+  Module.stringToUTF8(modelStr, buffer + offset, modelLen);
   offset += modelLen;
 
-  Module.stringToUTF8(config.voices ?? "", buffer + offset, voicesLen);
+  Module.stringToUTF8(voicesStr, buffer + offset, voicesLen);
   offset += voicesLen;
 
-  Module.stringToUTF8(config.tokens ?? "", buffer + offset, tokensLen);
+  Module.stringToUTF8(tokensStr, buffer + offset, tokensLen);
   offset += tokensLen;
 
-  Module.stringToUTF8(config.dataDir ?? "", buffer + offset, dataDirLen);
+  Module.stringToUTF8(dataDirStr, buffer + offset, dataDirLen);
   offset += dataDirLen;
 
   offset = 0;
-  Module.setValue(ptr + 0, buffer + offset, "i8*");
+  Module.setValue(ptr, buffer + offset, "i8*");
   offset += modelLen;
 
   Module.setValue(ptr + 4, buffer + offset, "i8*");
@@ -375,139 +425,361 @@ function initSherpaOnnxOfflineTtsKittenModelConfig(
   Module.setValue(ptr + 12, buffer + offset, "i8*");
   offset += dataDirLen;
 
-  Module.setValue(ptr + 16, (config.lengthScale ?? 1.0) as number, "float");
+  Module.setValue(ptr + 16, config.lengthScale ?? 1.0, "float");
+
+  return { buffer, ptr, len };
+}
+
+function initSherpaOnnxOfflineTtsZipVoiceModelConfig(
+  config: OfflineTtsZipVoiceModelConfig,
+  Module: SherpaModule,
+): AllocatedConfig {
+  const tokensStr = config.tokens ?? "";
+  const encoderStr = config.encoder ?? "";
+  const decoderStr = config.decoder ?? "";
+  const vocoderStr = config.vocoder ?? "";
+  const dataDirStr = config.dataDir ?? "";
+  const lexiconStr = config.lexicon ?? "";
+
+  const tokensLen = Module.lengthBytesUTF8(tokensStr) + 1;
+  const encoderLen = Module.lengthBytesUTF8(encoderStr) + 1;
+  const decoderLen = Module.lengthBytesUTF8(decoderStr) + 1;
+  const vocoderLen = Module.lengthBytesUTF8(vocoderStr) + 1;
+  const dataDirLen = Module.lengthBytesUTF8(dataDirStr) + 1;
+  const lexiconLen = Module.lengthBytesUTF8(lexiconStr) + 1;
+
+  const n = tokensLen + encoderLen + decoderLen + vocoderLen + dataDirLen + lexiconLen;
+
+  const buffer = Module._malloc(n);
+
+  const len = 10 * 4;
+  const ptr = Module._malloc(len);
+
+  let offset = 0;
+  Module.stringToUTF8(tokensStr, buffer + offset, tokensLen);
+  offset += tokensLen;
+
+  Module.stringToUTF8(encoderStr, buffer + offset, encoderLen);
+  offset += encoderLen;
+
+  Module.stringToUTF8(decoderStr, buffer + offset, decoderLen);
+  offset += decoderLen;
+
+  Module.stringToUTF8(vocoderStr, buffer + offset, vocoderLen);
+  offset += vocoderLen;
+
+  Module.stringToUTF8(dataDirStr, buffer + offset, dataDirLen);
+  offset += dataDirLen;
+
+  Module.stringToUTF8(lexiconStr, buffer + offset, lexiconLen);
+  offset += lexiconLen;
+
+  offset = 0;
+  Module.setValue(ptr, buffer + offset, "i8*");
+  offset += tokensLen;
+
+  Module.setValue(ptr + 4, buffer + offset, "i8*");
+  offset += encoderLen;
+
+  Module.setValue(ptr + 8, buffer + offset, "i8*");
+  offset += decoderLen;
+
+  Module.setValue(ptr + 12, buffer + offset, "i8*");
+  offset += vocoderLen;
+
+  Module.setValue(ptr + 16, buffer + offset, "i8*");
+  offset += dataDirLen;
+
+  Module.setValue(ptr + 20, buffer + offset, "i8*");
+  offset += lexiconLen;
+
+  Module.setValue(ptr + 24, config.featScale ?? 0.1, "float");
+  Module.setValue(ptr + 28, config.tShift ?? 0.5, "float");
+  Module.setValue(ptr + 32, config.targetRMS ?? 0.1, "float");
+  Module.setValue(ptr + 36, config.guidanceScale ?? 1.0, "float");
+
+  return { buffer, ptr, len };
+}
+
+function initSherpaOnnxOfflineTtsPocketModelConfig(
+  config: OfflineTtsPocketModelConfig,
+  Module: SherpaModule,
+): AllocatedConfig {
+  const lmFlowStr = config.lmFlow ?? "";
+  const lmMainStr = config.lmMain ?? "";
+  const encoderStr = config.encoder ?? "";
+  const decoderStr = config.decoder ?? "";
+  const textConditionerStr = config.textConditioner ?? "";
+  const vocabJsonStr = config.vocabJson ?? "";
+  const tokenScoresJsonStr = config.tokenScoresJson ?? "";
+
+  const lmFlowLen = Module.lengthBytesUTF8(lmFlowStr) + 1;
+  const lmMainLen = Module.lengthBytesUTF8(lmMainStr) + 1;
+  const encoderLen = Module.lengthBytesUTF8(encoderStr) + 1;
+  const decoderLen = Module.lengthBytesUTF8(decoderStr) + 1;
+  const textConditionerLen = Module.lengthBytesUTF8(textConditionerStr) + 1;
+  const vocabJsonLen = Module.lengthBytesUTF8(vocabJsonStr) + 1;
+  const tokenScoresJsonLen = Module.lengthBytesUTF8(tokenScoresJsonStr) + 1;
+
+  const n =
+    lmFlowLen +
+    lmMainLen +
+    encoderLen +
+    decoderLen +
+    textConditionerLen +
+    vocabJsonLen +
+    tokenScoresJsonLen;
+
+  const buffer = Module._malloc(n);
+
+  const len = 7 * 4;
+  const ptr = Module._malloc(len);
+
+  let offset = 0;
+  Module.stringToUTF8(lmFlowStr, buffer + offset, lmFlowLen);
+  offset += lmFlowLen;
+
+  Module.stringToUTF8(lmMainStr, buffer + offset, lmMainLen);
+  offset += lmMainLen;
+
+  Module.stringToUTF8(encoderStr, buffer + offset, encoderLen);
+  offset += encoderLen;
+
+  Module.stringToUTF8(decoderStr, buffer + offset, decoderLen);
+  offset += decoderLen;
+
+  Module.stringToUTF8(textConditionerStr, buffer + offset, textConditionerLen);
+  offset += textConditionerLen;
+
+  Module.stringToUTF8(vocabJsonStr, buffer + offset, vocabJsonLen);
+  offset += vocabJsonLen;
+
+  Module.stringToUTF8(tokenScoresJsonStr, buffer + offset, tokenScoresJsonLen);
+  offset += tokenScoresJsonLen;
+
+  offset = 0;
+  Module.setValue(ptr, buffer + offset, "i8*");
+  offset += lmFlowLen;
+
+  Module.setValue(ptr + 4, buffer + offset, "i8*");
+  offset += lmMainLen;
+
+  Module.setValue(ptr + 8, buffer + offset, "i8*");
+  offset += encoderLen;
+
+  Module.setValue(ptr + 12, buffer + offset, "i8*");
+  offset += decoderLen;
+
+  Module.setValue(ptr + 16, buffer + offset, "i8*");
+  offset += textConditionerLen;
+
+  Module.setValue(ptr + 20, buffer + offset, "i8*");
+  offset += vocabJsonLen;
+
+  Module.setValue(ptr + 24, buffer + offset, "i8*");
+  offset += tokenScoresJsonLen;
 
   return { buffer, ptr, len };
 }
 
 function initSherpaOnnxOfflineTtsModelConfig(
   config: OfflineTtsModelConfig,
-  Module: EmscriptenModule,
-) {
-  const vitsCfg: OfflineTtsVitsModelConfig = config.offlineTtsVitsModelConfig ?? {
-    model: "",
-    lexicon: "",
-    tokens: "",
-    noiseScale: 0.667,
-    noiseScaleW: 0.8,
-    lengthScale: 1.0,
-    dataDir: "",
-    dictDir: "",
-  };
+  Module: SherpaModule,
+): AllocatedConfig {
+  if (!("offlineTtsVitsModelConfig" in config)) {
+    config.offlineTtsVitsModelConfig = {
+      model: "",
+      lexicon: "",
+      tokens: "",
+      noiseScale: 0.667,
+      noiseScaleW: 0.8,
+      lengthScale: 1.0,
+      dataDir: "",
+    };
+  }
 
-  const matchaCfg: OfflineTtsMatchaModelConfig = config.offlineTtsMatchaModelConfig ?? {
-    acousticModel: "",
-    vocoder: "",
-    lexicon: "",
-    tokens: "",
-    noiseScale: 0.667,
-    lengthScale: 1.0,
-    dataDir: "",
-    dictDir: "",
-  };
+  if (!("offlineTtsMatchaModelConfig" in config)) {
+    config.offlineTtsMatchaModelConfig = {
+      acousticModel: "",
+      vocoder: "",
+      lexicon: "",
+      tokens: "",
+      noiseScale: 0.667,
+      lengthScale: 1.0,
+      dataDir: "",
+    };
+  }
 
-  const kokoroCfg: OfflineTtsKokoroModelConfig = config.offlineTtsKokoroModelConfig ?? {
-    model: "",
-    voices: "",
-    tokens: "",
-    lengthScale: 1.0,
-    dataDir: "",
-    dictDir: "",
-    lexicon: "",
-    lang: "",
-  };
+  if (!("offlineTtsKokoroModelConfig" in config)) {
+    config.offlineTtsKokoroModelConfig = {
+      model: "",
+      voices: "",
+      tokens: "",
+      lengthScale: 1.0,
+      dataDir: "",
+      lexicon: "",
+      lang: "",
+    };
+  }
 
-  const kittenCfg: OfflineTtsKittenModelConfig = config.offlineTtsKittenModelConfig ?? {
-    model: "",
-    voices: "",
-    tokens: "",
-    lengthScale: 1.0,
-    dataDir: "",
-  };
+  if (!("offlineTtsKittenModelConfig" in config)) {
+    config.offlineTtsKittenModelConfig = {
+      model: "",
+      voices: "",
+      tokens: "",
+      lengthScale: 1.0,
+    };
+  }
 
-  const vitsModelConfig = initSherpaOnnxOfflineTtsVitsModelConfig(vitsCfg, Module);
-  const matchaModelConfig = initSherpaOnnxOfflineTtsMatchaModelConfig(matchaCfg, Module);
-  const kokoroModelConfig = initSherpaOnnxOfflineTtsKokoroModelConfig(kokoroCfg, Module);
-  const kittenModelConfig = initSherpaOnnxOfflineTtsKittenModelConfig(kittenCfg, Module);
+  if (!("offlineTtsZipVoiceModelConfig" in config)) {
+    config.offlineTtsZipVoiceModelConfig = {
+      tokens: "",
+      encoder: "",
+      decoder: "",
+      vocoder: "",
+      dataDir: "",
+      lexicon: "",
+      featScale: 0.1,
+      tShift: 0.5,
+      targetRMS: 0.1,
+      guidanceScale: 1.0,
+    };
+  }
 
-  const provider = config.provider ?? "cpu";
-  const providerBuf = mallocUtf8(Module, provider);
+  if (!("offlineTtsPocketModelConfig" in config)) {
+    config.offlineTtsPocketModelConfig = {
+      lmFlow: "",
+      lmMain: "",
+      encoder: "",
+      decoder: "",
+      textConditioner: "",
+      vocabJson: "",
+      tokenScoresJson: "",
+    };
+  }
 
-  // total struct size:
-  // [vits(32)] [numThreads(4)] [debug(4)] [providerPtr(4)] [matcha(32)] [kokoro(32)] [kitten(20)]
+  const vitsModelConfig = initSherpaOnnxOfflineTtsVitsModelConfig(
+    config.offlineTtsVitsModelConfig!,
+    Module,
+  );
+
+  const matchaModelConfig = initSherpaOnnxOfflineTtsMatchaModelConfig(
+    config.offlineTtsMatchaModelConfig!,
+    Module,
+  );
+
+  const kokoroModelConfig = initSherpaOnnxOfflineTtsKokoroModelConfig(
+    config.offlineTtsKokoroModelConfig!,
+    Module,
+  );
+
+  const kittenModelConfig = initSherpaOnnxOfflineTtsKittenModelConfig(
+    config.offlineTtsKittenModelConfig!,
+    Module,
+  );
+
+  const zipVoiceModelConfig = initSherpaOnnxOfflineTtsZipVoiceModelConfig(
+    config.offlineTtsZipVoiceModelConfig!,
+    Module,
+  );
+
+  const pocketModelConfig = initSherpaOnnxOfflineTtsPocketModelConfig(
+    config.offlineTtsPocketModelConfig!,
+    Module,
+  );
+
   const len =
-    vitsModelConfig.len +
-    matchaModelConfig.len +
-    kokoroModelConfig.len +
-    kittenModelConfig.len +
+    (vitsModelConfig.len ?? 0) +
+    (matchaModelConfig.len ?? 0) +
+    (kokoroModelConfig.len ?? 0) +
+    (kittenModelConfig.len ?? 0) +
+    (zipVoiceModelConfig.len ?? 0) +
+    (pocketModelConfig.len ?? 0) +
     3 * 4;
 
   const ptr = Module._malloc(len);
 
   let offset = 0;
-  copyHeap(Module, vitsModelConfig.ptr, vitsModelConfig.len, ptr + offset);
-  offset += vitsModelConfig.len;
+  Module._CopyHeap(vitsModelConfig.ptr, vitsModelConfig.len ?? 0, ptr + offset);
+  offset += vitsModelConfig.len ?? 0;
 
-  Module.setValue(ptr + offset, (config.numThreads ?? 1) | 0, "i32");
+  Module.setValue(ptr + offset, config.numThreads ?? 1, "i32");
   offset += 4;
 
-  Module.setValue(ptr + offset, (config.debug ?? 0) | 0, "i32");
+  Module.setValue(ptr + offset, config.debug ?? 0, "i32");
   offset += 4;
 
-  Module.setValue(ptr + offset, providerBuf.ptr, "i8*");
+  const providerStr = config.provider ?? "cpu";
+  const providerLen = Module.lengthBytesUTF8(providerStr) + 1;
+  const providerBuf = Module._malloc(providerLen);
+  Module.stringToUTF8(providerStr, providerBuf, providerLen);
+  Module.setValue(ptr + offset, providerBuf, "i8*");
   offset += 4;
 
-  copyHeap(Module, matchaModelConfig.ptr, matchaModelConfig.len, ptr + offset);
-  offset += matchaModelConfig.len;
+  Module._CopyHeap(matchaModelConfig.ptr, matchaModelConfig.len ?? 0, ptr + offset);
+  offset += matchaModelConfig.len ?? 0;
 
-  copyHeap(Module, kokoroModelConfig.ptr, kokoroModelConfig.len, ptr + offset);
-  offset += kokoroModelConfig.len;
+  Module._CopyHeap(kokoroModelConfig.ptr, kokoroModelConfig.len ?? 0, ptr + offset);
+  offset += kokoroModelConfig.len ?? 0;
 
-  copyHeap(Module, kittenModelConfig.ptr, kittenModelConfig.len, ptr + offset);
-  offset += kittenModelConfig.len;
+  Module._CopyHeap(kittenModelConfig.ptr, kittenModelConfig.len ?? 0, ptr + offset);
+  offset += kittenModelConfig.len ?? 0;
+
+  Module._CopyHeap(zipVoiceModelConfig.ptr, zipVoiceModelConfig.len ?? 0, ptr + offset);
+  offset += zipVoiceModelConfig.len ?? 0;
+
+  Module._CopyHeap(pocketModelConfig.ptr, pocketModelConfig.len ?? 0, ptr + offset);
+  offset += pocketModelConfig.len ?? 0;
 
   return {
-    buffer: providerBuf.ptr,
+    buffer: providerBuf,
     ptr,
     len,
     config: vitsModelConfig,
     matcha: matchaModelConfig,
     kokoro: kokoroModelConfig,
     kitten: kittenModelConfig,
-  } satisfies AnyConfigNode;
+    zipvoice: zipVoiceModelConfig,
+    pocket: pocketModelConfig,
+  };
 }
 
-function initSherpaOnnxOfflineTtsConfig(config: OfflineTtsConfig, Module: EmscriptenModule) {
-  const modelConfig = initSherpaOnnxOfflineTtsModelConfig(config.offlineTtsModelConfig, Module);
+function initSherpaOnnxOfflineTtsConfig(
+  config: OfflineTtsConfig,
+  Module: SherpaModule,
+): AllocatedConfig {
+  const cfg: OfflineTtsConfig = config ?? {};
+  cfg.offlineTtsModelConfig = cfg.offlineTtsModelConfig ?? {};
 
-  // modelConfig + ruleFstsPtr + maxNumSentences + ruleFarsPtr + silenceScale
+  const modelConfig = initSherpaOnnxOfflineTtsModelConfig(cfg.offlineTtsModelConfig, Module);
+
   const len = (modelConfig.len ?? 0) + 4 * 4;
   const ptr = Module._malloc(len);
 
   let offset = 0;
-  copyHeap(Module, modelConfig.ptr, modelConfig.len ?? 0, ptr + offset);
+  Module._CopyHeap(modelConfig.ptr, modelConfig.len ?? 0, ptr + offset);
   offset += modelConfig.len ?? 0;
 
-  const ruleFsts = config.ruleFsts ?? "";
-  const ruleFars = config.ruleFars ?? "";
+  const ruleFstsStr = cfg.ruleFsts ?? "";
+  const ruleFarsStr = cfg.ruleFars ?? "";
 
-  const ruleFstsLen = Module.lengthBytesUTF8(ruleFsts) + 1;
-  const ruleFarsLen = Module.lengthBytesUTF8(ruleFars) + 1;
+  const ruleFstsLen = Module.lengthBytesUTF8(ruleFstsStr) + 1;
+  const ruleFarsLen = Module.lengthBytesUTF8(ruleFarsStr) + 1;
 
   const buffer = Module._malloc(ruleFstsLen + ruleFarsLen);
-  Module.stringToUTF8(ruleFsts, buffer, ruleFstsLen);
-  Module.stringToUTF8(ruleFars, buffer + ruleFstsLen, ruleFarsLen);
+  Module.stringToUTF8(ruleFstsStr, buffer, ruleFstsLen);
+  Module.stringToUTF8(ruleFarsStr, buffer + ruleFstsLen, ruleFarsLen);
 
   Module.setValue(ptr + offset, buffer, "i8*");
   offset += 4;
 
-  Module.setValue(ptr + offset, (config.maxNumSentences ?? 1) | 0, "i32");
+  Module.setValue(ptr + offset, cfg.maxNumSentences ?? 1, "i32");
   offset += 4;
 
   Module.setValue(ptr + offset, buffer + ruleFstsLen, "i8*");
   offset += 4;
 
-  Module.setValue(ptr + offset, (config.silenceScale ?? 0.2) as number, "float");
+  Module.setValue(ptr + offset, cfg.silenceScale ?? 0.2, "float");
   offset += 4;
 
   return {
@@ -515,101 +787,101 @@ function initSherpaOnnxOfflineTtsConfig(config: OfflineTtsConfig, Module: Emscri
     ptr,
     len,
     config: modelConfig,
-  } satisfies AnyConfigNode;
+  };
 }
 
-// ---------- High-level API ----------
 export class OfflineTts {
-  readonly handle: number;
-  readonly sampleRate: number;
-  readonly numSpeakers: number;
-  private readonly Module: EmscriptenModule;
+  public handle: number;
+  public sampleRate: number;
+  public numSpeakers: number;
+  public Module: SherpaModule;
 
-  constructor(configObj: OfflineTtsConfig, Module: EmscriptenModule) {
-    const cfg = initSherpaOnnxOfflineTtsConfig(configObj, Module);
-    const handle = Module._SherpaOnnxCreateOfflineTts(cfg.ptr);
+  constructor(configObj: OfflineTtsConfig, Module: SherpaModule) {
+    console.log(configObj);
+    const config = initSherpaOnnxOfflineTtsConfig(configObj, Module);
+    const handle = Module._SherpaOnnxCreateOfflineTts(config.ptr);
 
-    // free temporary config allocations
-    freeConfig(cfg, Module);
+    freeConfig(config, Module);
 
     this.handle = handle;
-    this.sampleRate = Module._SherpaOnnxOfflineTtsSampleRate(handle);
-    this.numSpeakers = Module._SherpaOnnxOfflineTtsNumSpeakers(handle);
+    this.sampleRate = Module._SherpaOnnxOfflineTtsSampleRate(this.handle);
+    this.numSpeakers = Module._SherpaOnnxOfflineTtsNumSpeakers(this.handle);
     this.Module = Module;
   }
 
-  free() {
+  free(): void {
     this.Module._SherpaOnnxDestroyOfflineTts(this.handle);
-    // (handle becomes invalid; you can track state if you want)
+    this.handle = 0;
   }
 
-  generate(config: GenerateConfig): GeneratedAudio {
-    const { ptr: textPtr } = mallocUtf8(this.Module, config.text);
+  // {
+  //   text: "hello",
+  //   sid: 1,
+  //   speed: 1.0
+  // }
+  generate(config: OfflineTtsGenerateConfig): GeneratedAudio {
+    const textLen = this.Module.lengthBytesUTF8(config.text) + 1;
+    const textPtr = this.Module._malloc(textLen);
+    this.Module.stringToUTF8(config.text, textPtr, textLen);
 
-    try {
-      const h = this.Module._SherpaOnnxOfflineTtsGenerate(
-        this.handle,
-        textPtr,
-        config.sid | 0,
-        +config.speed,
-      );
+    const h = this.Module._SherpaOnnxOfflineTtsGenerate(
+      this.handle,
+      textPtr,
+      config.sid,
+      config.speed,
+    );
 
-      const numSamples = this.Module.HEAP32[h / 4 + 1];
-      const sampleRate = this.Module.HEAP32[h / 4 + 2];
+    const numSamples = this.Module.HEAP32[h / 4 + 1];
+    const sampleRate = this.Module.HEAP32[h / 4 + 2];
 
-      const samplesPtrWords = this.Module.HEAP32[h / 4] / 4;
-      const samples = new Float32Array(numSamples);
-      for (let i = 0; i < numSamples; i++) {
-        samples[i] = this.Module.HEAPF32[samplesPtrWords + i];
-      }
-
-      this.Module._SherpaOnnxDestroyOfflineTtsGeneratedAudio(h);
-      return { samples, sampleRate };
-    } finally {
-      // Fixes leak in original JS
-      this.Module._free(textPtr);
+    const samplesPtr = this.Module.HEAP32[h / 4] / 4;
+    const samples = new Float32Array(numSamples);
+    for (let i = 0; i < numSamples; i++) {
+      samples[i] = this.Module.HEAPF32[samplesPtr + i];
     }
+
+    this.Module._SherpaOnnxDestroyOfflineTtsGeneratedAudio(h);
+    // NOTE: original JS did not free textPtr; keeping behavior.
+    return { samples, sampleRate };
   }
 
-  save(filename: string, audio: GeneratedAudio) {
-    const { samples, sampleRate } = audio;
+  save(filename: string, audio: GeneratedAudio): void {
+    const samples = audio.samples;
+    const sampleRate = audio.sampleRate;
 
-    const samplesPtr = this.Module._malloc(samples.length * 4);
+    const ptr = this.Module._malloc(samples.length * 4);
     for (let i = 0; i < samples.length; i++) {
-      this.Module.HEAPF32[samplesPtr / 4 + i] = samples[i];
+      this.Module.HEAPF32[ptr / 4 + i] = samples[i];
     }
 
-    const { ptr: filenamePtr } = mallocUtf8(this.Module, filename);
+    const filenameLen = this.Module.lengthBytesUTF8(filename) + 1;
+    const buffer = this.Module._malloc(filenameLen);
+    this.Module.stringToUTF8(filename, buffer, filenameLen);
 
-    try {
-      this.Module._SherpaOnnxWriteWave(samplesPtr, samples.length, sampleRate, filenamePtr);
-    } finally {
-      this.Module._free(filenamePtr);
-      this.Module._free(samplesPtr);
-    }
+    this.Module._SherpaOnnxWriteWave(ptr, samples.length, sampleRate, buffer);
+
+    this.Module._free(buffer);
+    this.Module._free(ptr);
   }
 }
 
-export function createOfflineTts(Module: EmscriptenModule, myConfig?: OfflineTtsConfig) {
-  // Same defaults as your original JS
-  const offlineTtsVitsModelConfig: OfflineTtsVitsModelConfig = {
-    model: "./model.onnx",
+export function createOfflineTts(Module: SherpaModule, myConfig?: OfflineTtsConfig): OfflineTts {
+  const vits: OfflineTtsVitsModelConfig = {
+    model: "",
     lexicon: "",
-    tokens: "./tokens.txt",
-    dataDir: "./espeak-ng-data",
-    dictDir: "",
+    tokens: "",
+    dataDir: "",
     noiseScale: 0.667,
     noiseScaleW: 0.8,
     lengthScale: 1.0,
   };
 
-  const offlineTtsMatchaModelConfig: OfflineTtsMatchaModelConfig = {
+  const matcha: OfflineTtsMatchaModelConfig = {
     acousticModel: "",
     vocoder: "",
     lexicon: "",
     tokens: "",
     dataDir: "",
-    dictDir: "",
     noiseScale: 0.667,
     lengthScale: 1.0,
   };
@@ -620,7 +892,6 @@ export function createOfflineTts(Module: EmscriptenModule, myConfig?: OfflineTts
     tokens: "",
     dataDir: "",
     lengthScale: 1.0,
-    dictDir: "",
     lexicon: "",
     lang: "",
   };
@@ -633,27 +904,76 @@ export function createOfflineTts(Module: EmscriptenModule, myConfig?: OfflineTts
     lengthScale: 1.0,
   };
 
+  const offlineTtsPocketModelConfig: OfflineTtsPocketModelConfig = {
+    lmFlow: "",
+    lmMain: "",
+    encoder: "",
+    decoder: "",
+    textConditioner: "",
+    vocabJson: "",
+    tokenScoresJson: "",
+  };
+
+  let ruleFsts = "";
+
+  let type = 0;
+  switch (type) {
+    case 0:
+      // vits
+      vits.model = "./model.onnx";
+      vits.tokens = "./tokens.txt";
+      vits.dataDir = "./espeak-ng-data";
+      break;
+
+    case 1:
+      // matcha zh-en
+      matcha.acousticModel = "./model-steps-3.onnx";
+      matcha.vocoder = "./vocos-16khz-univ.onnx";
+      matcha.lexicon = "./lexicon.txt";
+      matcha.tokens = "./tokens.txt";
+      matcha.dataDir = "./espeak-ng-data";
+      ruleFsts = "./phone-zh.fst,./date-zh.fst,./number-zh.fst";
+      break;
+
+    case 2:
+      // matcha zh
+      matcha.acousticModel = "./model-steps-3.onnx";
+      matcha.vocoder = "./vocos-22khz-univ.onnx";
+      matcha.lexicon = "./lexicon.txt";
+      matcha.tokens = "./tokens.txt";
+      ruleFsts = "./phone.fst,./date.fst,./number.fst";
+      break;
+
+    case 3:
+      // matcha en
+      matcha.acousticModel = "./model-steps-3.onnx";
+      matcha.vocoder = "./vocos-22khz-univ.onnx";
+      matcha.tokens = "./tokens.txt";
+      matcha.dataDir = "./espeak-ng-data";
+      break;
+  }
+
   const offlineTtsModelConfig: OfflineTtsModelConfig = {
-    offlineTtsVitsModelConfig,
-    offlineTtsMatchaModelConfig,
+    offlineTtsVitsModelConfig: vits,
+    offlineTtsMatchaModelConfig: matcha,
     offlineTtsKokoroModelConfig,
     offlineTtsKittenModelConfig,
+    offlineTtsPocketModelConfig,
     numThreads: 1,
     debug: 1,
     provider: "cpu",
   };
 
-  const defaultConfig: OfflineTtsConfig = {
+  let offlineTtsConfig: OfflineTtsConfig = {
     offlineTtsModelConfig,
-    ruleFsts: "",
+    ruleFsts,
     ruleFars: "",
     maxNumSentences: 1,
   };
 
-  return new OfflineTts(myConfig ?? defaultConfig, Module);
-}
+  if (myConfig) {
+    offlineTtsConfig = myConfig;
+  }
 
-export function getSherpaOnnxVersion(Module: EmscriptenModule) {
-  const ptr = Module._SherpaOnnxGetVersionStr();
-  return Module.UTF8ToString(ptr);
+  return new OfflineTts(offlineTtsConfig, Module);
 }
