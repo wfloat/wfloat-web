@@ -44,6 +44,16 @@ export interface OfflineTtsVitsModelConfig {
   dataDir?: string;
 }
 
+export interface OfflineTtsWfloatModelConfig {
+  model?: string;
+  lexicon?: string;
+  tokens?: string;
+  noiseScale?: number;
+  noiseScaleW?: number;
+  lengthScale?: number;
+  dataDir?: string;
+}
+
 export interface OfflineTtsMatchaModelConfig {
   acousticModel?: string;
   vocoder?: string;
@@ -97,6 +107,7 @@ export interface OfflineTtsPocketModelConfig {
 
 export interface OfflineTtsModelConfig {
   offlineTtsVitsModelConfig?: OfflineTtsVitsModelConfig;
+  offlineTtsWfloatModelConfig?: OfflineTtsWfloatModelConfig;
   offlineTtsMatchaModelConfig?: OfflineTtsMatchaModelConfig;
   offlineTtsKokoroModelConfig?: OfflineTtsKokoroModelConfig;
   offlineTtsKittenModelConfig?: OfflineTtsKittenModelConfig;
@@ -138,6 +149,7 @@ type AllocatedConfig = {
   kitten?: AllocatedConfig;
   zipvoice?: AllocatedConfig;
   pocket?: AllocatedConfig;
+  wfloat?: AllocatedConfig;
 };
 
 function freeConfig(config: AllocatedConfig, Module: SherpaModule): void {
@@ -167,6 +179,10 @@ function freeConfig(config: AllocatedConfig, Module: SherpaModule): void {
 
   if ("pocket" in config && config.pocket) {
     freeConfig(config.pocket, Module);
+  }
+
+  if ("wfloat" in config && config.wfloat) {
+    freeConfig(config.wfloat, Module);
   }
 
   Module._free(config.ptr);
@@ -610,6 +626,18 @@ function initSherpaOnnxOfflineTtsModelConfig(
     };
   }
 
+  if (!("offlineTtsWfloatModelConfig" in config)) {
+    config.offlineTtsWfloatModelConfig = {
+      model: "",
+      lexicon: "",
+      tokens: "",
+      noiseScale: 0.667,
+      noiseScaleW: 0.8,
+      lengthScale: 1.0,
+      dataDir: "",
+    };
+  }
+
   if (!("offlineTtsKokoroModelConfig" in config)) {
     config.offlineTtsKokoroModelConfig = {
       model: "",
@@ -668,6 +696,11 @@ function initSherpaOnnxOfflineTtsModelConfig(
     Module,
   );
 
+  const wfloatModelConfig = initSherpaOnnxOfflineTtsVitsModelConfig(
+    config.offlineTtsWfloatModelConfig!,
+    Module,
+  );
+
   const kokoroModelConfig = initSherpaOnnxOfflineTtsKokoroModelConfig(
     config.offlineTtsKokoroModelConfig!,
     Module,
@@ -695,6 +728,7 @@ function initSherpaOnnxOfflineTtsModelConfig(
     (kittenModelConfig.len ?? 0) +
     (zipVoiceModelConfig.len ?? 0) +
     (pocketModelConfig.len ?? 0) +
+    (wfloatModelConfig.len ?? 0) +
     3 * 4;
 
   const ptr = Module._malloc(len);
@@ -731,6 +765,9 @@ function initSherpaOnnxOfflineTtsModelConfig(
   Module._CopyHeap(pocketModelConfig.ptr, pocketModelConfig.len ?? 0, ptr + offset);
   offset += pocketModelConfig.len ?? 0;
 
+  Module._CopyHeap(wfloatModelConfig.ptr, wfloatModelConfig.len ?? 0, ptr + offset);
+  offset += wfloatModelConfig.len ?? 0;
+
   return {
     buffer: providerBuf,
     ptr,
@@ -741,6 +778,7 @@ function initSherpaOnnxOfflineTtsModelConfig(
     kitten: kittenModelConfig,
     zipvoice: zipVoiceModelConfig,
     pocket: pocketModelConfig,
+    wfloat: wfloatModelConfig,
   };
 }
 
@@ -886,6 +924,16 @@ export function createOfflineTts(Module: SherpaModule, myConfig?: OfflineTtsConf
     lengthScale: 1.0,
   };
 
+  const wfloat: OfflineTtsWfloatModelConfig = {
+    model: "",
+    lexicon: "",
+    tokens: "",
+    dataDir: "",
+    noiseScale: 0.667,
+    noiseScaleW: 0.8,
+    lengthScale: 1.0,
+  };
+
   const offlineTtsKokoroModelConfig: OfflineTtsKokoroModelConfig = {
     model: "",
     voices: "",
@@ -916,45 +964,46 @@ export function createOfflineTts(Module: SherpaModule, myConfig?: OfflineTtsConf
 
   let ruleFsts = "";
 
-  let type = 0;
-  switch (type) {
-    case 0:
-      // vits
-      vits.model = "./model.onnx";
-      vits.tokens = "./tokens.txt";
-      vits.dataDir = "./espeak-ng-data";
-      break;
+  // let type = 0;
+  // switch (type) {
+  //   case 0:
+  //     // vits
+  //     vits.model = "./model.onnx";
+  //     vits.tokens = "./tokens.txt";
+  //     vits.dataDir = "./espeak-ng-data";
+  //     break;
 
-    case 1:
-      // matcha zh-en
-      matcha.acousticModel = "./model-steps-3.onnx";
-      matcha.vocoder = "./vocos-16khz-univ.onnx";
-      matcha.lexicon = "./lexicon.txt";
-      matcha.tokens = "./tokens.txt";
-      matcha.dataDir = "./espeak-ng-data";
-      ruleFsts = "./phone-zh.fst,./date-zh.fst,./number-zh.fst";
-      break;
+  //   case 1:
+  //     // matcha zh-en
+  //     matcha.acousticModel = "./model-steps-3.onnx";
+  //     matcha.vocoder = "./vocos-16khz-univ.onnx";
+  //     matcha.lexicon = "./lexicon.txt";
+  //     matcha.tokens = "./tokens.txt";
+  //     matcha.dataDir = "./espeak-ng-data";
+  //     ruleFsts = "./phone-zh.fst,./date-zh.fst,./number-zh.fst";
+  //     break;
 
-    case 2:
-      // matcha zh
-      matcha.acousticModel = "./model-steps-3.onnx";
-      matcha.vocoder = "./vocos-22khz-univ.onnx";
-      matcha.lexicon = "./lexicon.txt";
-      matcha.tokens = "./tokens.txt";
-      ruleFsts = "./phone.fst,./date.fst,./number.fst";
-      break;
+  //   case 2:
+  //     // matcha zh
+  //     matcha.acousticModel = "./model-steps-3.onnx";
+  //     matcha.vocoder = "./vocos-22khz-univ.onnx";
+  //     matcha.lexicon = "./lexicon.txt";
+  //     matcha.tokens = "./tokens.txt";
+  //     ruleFsts = "./phone.fst,./date.fst,./number.fst";
+  //     break;
 
-    case 3:
-      // matcha en
-      matcha.acousticModel = "./model-steps-3.onnx";
-      matcha.vocoder = "./vocos-22khz-univ.onnx";
-      matcha.tokens = "./tokens.txt";
-      matcha.dataDir = "./espeak-ng-data";
-      break;
-  }
+  //   case 3:
+  //     // matcha en
+  //     matcha.acousticModel = "./model-steps-3.onnx";
+  //     matcha.vocoder = "./vocos-22khz-univ.onnx";
+  //     matcha.tokens = "./tokens.txt";
+  //     matcha.dataDir = "./espeak-ng-data";
+  //     break;
+  // }
 
   const offlineTtsModelConfig: OfflineTtsModelConfig = {
     offlineTtsVitsModelConfig: vits,
+    offlineTtsWfloatModelConfig: wfloat,
     offlineTtsMatchaModelConfig: matcha,
     offlineTtsKokoroModelConfig,
     offlineTtsKittenModelConfig,
