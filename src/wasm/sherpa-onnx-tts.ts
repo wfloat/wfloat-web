@@ -23,6 +23,20 @@ export interface SherpaModule {
     sid: number,
     speed: number,
   ): number;
+  _SherpaOnnxOfflineTtsGenerateWithCallback(
+    handle: number,
+    textPtr: number,
+    sid: number,
+    speed: number,
+    callbackPtr: number,
+  ): number;
+  _SherpaOnnxOfflineTtsGenerateWithProgressCallback(
+    handle: number,
+    textPtr: number,
+    sid: number,
+    speed: number,
+    callbackPtr: number,
+  ): number;
 
   _SherpaOnnxDestroyOfflineTtsGeneratedAudio(h: number): void;
 
@@ -32,6 +46,9 @@ export interface SherpaModule {
     sampleRate: number,
     filenamePtr: number,
   ): void;
+
+  addFunction?(func: (...args: number[]) => number, sig: string): number;
+  removeFunction?(ptr: number): void;
 }
 
 export interface OfflineTtsVitsModelConfig {
@@ -138,6 +155,13 @@ export interface GeneratedAudio {
   samples: Float32Array;
   sampleRate: number;
 }
+
+export type OfflineTtsCallback = (samples: Float32Array) => number | boolean | void;
+
+export type OfflineTtsProgressCallback = (
+  samples: Float32Array,
+  progress: number,
+) => number | boolean | void;
 
 type AllocatedConfig = {
   buffer?: number;
@@ -852,35 +876,169 @@ export class OfflineTts {
     this.handle = 0;
   }
 
+  private readSamples(samplesPtr: number, numSamples: number): Float32Array {
+    if (!samplesPtr || numSamples <= 0) {
+      return new Float32Array(0);
+    }
+
+    const start = samplesPtr / 4;
+    return new Float32Array(this.Module.HEAPF32.subarray(start, start + numSamples));
+  }
+
+  private decodeGeneratedAudio(handle: number): GeneratedAudio {
+    if (!handle) {
+      throw new Error("Failed to generate audio: Sherpa returned a null pointer.");
+    }
+
+    const samplesPtr = this.Module.HEAP32[handle / 4];
+    const numSamples = this.Module.HEAP32[handle / 4 + 1];
+    const sampleRate = this.Module.HEAP32[handle / 4 + 2];
+
+    return {
+      samples: this.readSamples(samplesPtr, numSamples),
+      sampleRate,
+    };
+  }
+
+  private generateInternal(
+    config: OfflineTtsGenerateConfig,
+    generateFn: (textPtr: number) => number,
+  ): GeneratedAudio {
+    const textLen = this.Module.lengthBytesUTF8(config.text) + 1;
+    const textPtr = this.Module._malloc(textLen);
+    this.Module.stringToUTF8(config.text, textPtr, textLen);
+
+    let generatedAudioHandle = 0;
+    try {
+      generatedAudioHandle = generateFn(textPtr);
+      return this.decodeGeneratedAudio(generatedAudioHandle);
+    } finally {
+      if (generatedAudioHandle) {
+        this.Module._SherpaOnnxDestroyOfflineTtsGeneratedAudio(generatedAudioHandle);
+      }
+      this.Module._free(textPtr);
+    }
+  }
+
+  private getFunctionPointerBridge(): {
+    addFunction: (func: (...args: number[]) => number, sig: string) => number;
+    removeFunction: (ptr: number) => void;
+  } {
+    const addFunction = this.Module.addFunction;
+    const removeFunction = this.Module.removeFunction;
+
+    if (!addFunction || !removeFunction) {
+      throw new Error(
+        "WASM callback bridge is not available. Rebuild with addFunction/removeFunction exposed.",
+      );
+    }
+
+    return { addFunction, removeFunction };
+  }
+
   // {
   //   text: "hello",
   //   sid: 1,
   //   speed: 1.0
   // }
   generate(config: OfflineTtsGenerateConfig): GeneratedAudio {
-    const textLen = this.Module.lengthBytesUTF8(config.text) + 1;
-    const textPtr = this.Module._malloc(textLen);
-    this.Module.stringToUTF8(config.text, textPtr, textLen);
-
-    const h = this.Module._SherpaOnnxOfflineTtsGenerate(
-      this.handle,
-      textPtr,
-      config.sid,
-      config.speed,
+    return this.generateInternal(config, (textPtr: number) =>
+      this.Module._SherpaOnnxOfflineTtsGenerate(this.handle, textPtr, config.sid, config.speed),
     );
+  }
 
-    const numSamples = this.Module.HEAP32[h / 4 + 1];
-    const sampleRate = this.Module.HEAP32[h / 4 + 2];
+  generateWithCallback(
+    config: OfflineTtsGenerateConfig,
+    callback: OfflineTtsCallback,
+  ): GeneratedAudio {
+    const { addFunction, removeFunction } = this.getFunctionPointerBridge();
+    let callbackError: unknown = null;
+    const callbackPtr = addFunction((samplesPtr: number, n: number): number => {
+      if (callbackError !== null) {
+        return 0;
+      }
 
-    const samplesPtr = this.Module.HEAP32[h / 4] / 4;
-    const samples = new Float32Array(numSamples);
-    for (let i = 0; i < numSamples; i++) {
-      samples[i] = this.Module.HEAPF32[samplesPtr + i];
+      try {
+        const samples = this.readSamples(samplesPtr, n);
+        const shouldContinue = callback(samples);
+        return shouldContinue === false || shouldContinue === 0 ? 0 : 1;
+      } catch (error) {
+        callbackError = error;
+        return 0;
+      }
+    }, "iii");
+
+    try {
+      const audio = this.generateInternal(config, (textPtr: number) =>
+        this.Module._SherpaOnnxOfflineTtsGenerateWithCallback(
+          this.handle,
+          textPtr,
+          config.sid,
+          config.speed,
+          callbackPtr,
+        ),
+      );
+
+      if (callbackError !== null) {
+        throw callbackError;
+      }
+
+      return audio;
+    } catch (error) {
+      if (callbackError !== null) {
+        throw callbackError;
+      }
+      throw error;
+    } finally {
+      removeFunction(callbackPtr);
     }
+  }
 
-    this.Module._SherpaOnnxDestroyOfflineTtsGeneratedAudio(h);
-    // NOTE: original JS did not free textPtr; keeping behavior.
-    return { samples, sampleRate };
+  generateWithProgressCallback(
+    config: OfflineTtsGenerateConfig,
+    callback: OfflineTtsProgressCallback,
+  ): GeneratedAudio {
+    const { addFunction, removeFunction } = this.getFunctionPointerBridge();
+    let callbackError: unknown = null;
+    const callbackPtr = addFunction((samplesPtr: number, n: number, progress: number): number => {
+      if (callbackError !== null) {
+        return 0;
+      }
+
+      try {
+        const samples = this.readSamples(samplesPtr, n);
+        const shouldContinue = callback(samples, progress);
+        return shouldContinue === false || shouldContinue === 0 ? 0 : 1;
+      } catch (error) {
+        callbackError = error;
+        return 0;
+      }
+    }, "iiif");
+
+    try {
+      const audio = this.generateInternal(config, (textPtr: number) =>
+        this.Module._SherpaOnnxOfflineTtsGenerateWithProgressCallback(
+          this.handle,
+          textPtr,
+          config.sid,
+          config.speed,
+          callbackPtr,
+        ),
+      );
+
+      if (callbackError !== null) {
+        throw callbackError;
+      }
+
+      return audio;
+    } catch (error) {
+      if (callbackError !== null) {
+        throw callbackError;
+      }
+      throw error;
+    } finally {
+      removeFunction(callbackPtr);
+    }
   }
 
   save(filename: string, audio: GeneratedAudio): void {
