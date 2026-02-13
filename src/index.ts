@@ -1,10 +1,12 @@
 import {
   // getSherpaOnnxVersion,
   createOfflineTts,
+  prepareWfloatText,
   // OfflineTtsConfig,
 } from "./wasm/sherpa-onnx-tts.js";
 // @ts-ignore
 import createSherpaModule from "./wasm/sherpa-onnx-wasm-main-tts.js";
+import { testText } from "./testText.js";
 
 // const STAGE = "LOCAL"; // "PROD"
 
@@ -22,9 +24,9 @@ const moduleConfig = {
 
     return path;
   },
-  print: console.log,
-  printErr: (s: string) => console.error("wasm:", s),
-  onAbort: (what: any) => console.error("wasm abort:", what),
+  // print: console.log,
+  // printErr: (s: string) => console.error("wasm:", s),
+  // onAbort: (what: any) => console.error("wasm abort:", what),
 };
 
 // export async function getVersion() {
@@ -72,6 +74,55 @@ export async function runTts() {
   Module.FS.writeFile("/model.onnx", modelData);
 
   console.log(Module.FS.readdir("/"));
+
+  for (let i = 0; i < testText.length; i++) {
+    const item = testText[i];
+
+    const result = prepareWfloatText(Module, {
+      text: item.original,
+      emotion: "neutral",
+      style: "default",
+      intensity: 0.5,
+      pace: 0.5,
+    });
+
+    const trimmedTextClean = result.textClean.map((str) => str.replace("😐🙂⑤⑤", ""));
+
+    const textMatches =
+      result.text.length === item.text.length &&
+      result.text.every((val, idx) => val === item.text[idx]);
+
+    const textCleanMatches =
+      trimmedTextClean.length === item.text_clean.length &&
+      trimmedTextClean.every((val, idx) => val === item.text_clean[idx]);
+
+    if (!textMatches || !textCleanMatches) {
+      throw new Error(
+        `Wfloat mismatch at index ${i}
+
+
+Original:
+${item.original}
+
+
+Expected text:
+${JSON.stringify(item.text, null, 2)}
+
+
+Actual text:
+${JSON.stringify(result.text, null, 2)}
+
+
+Expected text_clean:
+${JSON.stringify(item.text_clean, null, 2)}
+
+
+Actual textClean (trimmed):
+${JSON.stringify(trimmedTextClean, null, 2)}
+`,
+      );
+    }
+  }
 
   // const config: OfflineTtsConfig = {
   //   offlineTtsModelConfig: {
@@ -121,21 +172,19 @@ export async function runTts() {
     });
     console.log("TTS did init!");
 
-    const audio = tts.generate({
-      text: "If you hear this, T T S works.",
-      sid: 0,
-      speed: 1.0,
-    });
+    const audio = tts.generateWithCallback(
+      {
+        // text: "If you hear this, T T S works. Wfloat is a technology! Words are here's word? aaaa b   ",
+        text: "A.😐🙂⓪① B. C.😄😏②③ D! E?😡🎭④⑤ F. G. H.😲🧐⑥⑦ I! J?😱😜⑧⑨",
+        sid: 0,
+        speed: 1.0,
+      },
+      (chunk) => {
+        console.log("chunk samples:", chunk.length);
+        return true; // continue
+      },
+    );
 
-    const end = performance.now();
-    // console.log(`tts.generate took ${(end - start).toFixed(2)} ms`);
-
-    // mem = Module.wasmMemory || Module.HEAP8.buffer;
-    // bytes = mem.byteLength;
-
-    // console.log("WASM linear memory after generate():", bytes / (1024 * 1024), "MB");
-
-    // write wav using existing package code
     const filename = "validate.wav";
     tts.save(filename, audio);
 
@@ -150,6 +199,45 @@ export async function runTts() {
     el.controls = true;
     el.src = url;
     document.body.appendChild(el);
+
+    const audio2 = tts.generateWithProgressCallback(
+      {
+        // text: "If you hear this, T T S works. Wfloat is a technology! Words are here's word? aaaa b   ",
+        // text: "K Mr. Sir.😐🙂⓪① L. M.😄😏②③ N! O?😡🎭④⑤ P. Q. R.😲🧐⑥⑦ S! T?😱😜⑧⑨",
+        text: "I was thinking.  maybe we should wait.",
+        sid: 0,
+        speed: 1.0,
+      },
+      (chunk, progress) => {
+        console.log(`progress ${(progress * 100).toFixed(1)}%`, "chunk:", chunk.length);
+        return true; // continue
+      },
+    );
+
+    const filename2 = "validate2.wav";
+    tts.save(filename2, audio2);
+
+    // extract wav from emscripten fs
+    const wav2 = Module.FS.readFile(filename2);
+
+    // surface it
+    const blob2 = new Blob([wav2.buffer], { type: "audio/wav" });
+    const url2 = URL.createObjectURL(blob2);
+
+    const el2 = document.createElement("audio");
+    el2.controls = true;
+    el2.src = url2;
+    document.body.appendChild(el2);
+
+    const end = performance.now();
+    // console.log(`tts.generate took ${(end - start).toFixed(2)} ms`);
+
+    // mem = Module.wasmMemory || Module.HEAP8.buffer;
+    // bytes = mem.byteLength;
+
+    // console.log("WASM linear memory after generate():", bytes / (1024 * 1024), "MB");
+
+    // write wav using existing package code
 
     tts.free();
   } catch (e) {
@@ -229,14 +317,22 @@ export async function runTts() {
   // return 1;
 }
 
+// async function main() {
+//   // console.log(await getVersion());
+//   try {
+//     await runTts();
+//   } catch (error) {
+//     console.error(error);
+//   }
+//   // validateTtsOnPage();
+// }
+
+// main();
+
 async function main() {
-  // console.log(await getVersion());
-  try {
-    await runTts();
-  } catch (error) {
-    console.error(error);
-  }
-  // validateTtsOnPage();
+  const Module = await createSherpaModule(moduleConfig);
+  Module.FS.chdir("/");
+  // Module._free?.();
 }
 
-main();
+// main();

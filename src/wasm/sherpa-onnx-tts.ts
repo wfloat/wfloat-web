@@ -4,6 +4,7 @@ export interface SherpaModule {
 
   lengthBytesUTF8(str: string): number;
   stringToUTF8(str: string, outPtr: number, maxBytesToWrite: number): void;
+  UTF8ToString(ptr: number): string;
   setValue(ptr: number, value: number, type: "i8*" | "i32" | "float"): void;
 
   HEAP32: Int32Array;
@@ -16,6 +17,15 @@ export interface SherpaModule {
   _SherpaOnnxDestroyOfflineTts(handle: number): void;
   _SherpaOnnxOfflineTtsSampleRate(handle: number): number;
   _SherpaOnnxOfflineTtsNumSpeakers(handle: number): number;
+
+  _SherpaOnnxOfflineTtsWfloatPrepareText(
+    textPtr: number,
+    emotionPtr: number,
+    stylePtr: number,
+    intensity: number,
+    pace: number,
+  ): number;
+  _SherpaOnnxOfflineTtsWfloatFreePreparedText(ptr: number): void;
 
   _SherpaOnnxOfflineTtsGenerate(
     handle: number,
@@ -151,6 +161,24 @@ export interface OfflineTtsGenerateConfig {
   speed: number;
 }
 
+export interface WfloatPrepareTextConfig {
+  text: string;
+  emotion: string;
+  style: string;
+  intensity: number;
+  pace: number;
+}
+
+export interface WfloatPreparedTextResult {
+  text: string[];
+  textClean: string[];
+}
+
+type WfloatPreparedTextWire = {
+  text?: unknown;
+  text_clean?: unknown;
+};
+
 export interface GeneratedAudio {
   samples: Float32Array;
   sampleRate: number;
@@ -210,6 +238,76 @@ function freeConfig(config: AllocatedConfig, Module: SherpaModule): void {
   }
 
   Module._free(config.ptr);
+}
+
+function clampToUnitRange(v: number): number {
+  if (!Number.isFinite(v)) {
+    return 0;
+  }
+
+  if (v < 0) {
+    return 0;
+  }
+
+  if (v > 1) {
+    return 1;
+  }
+
+  return v;
+}
+
+export function prepareWfloatText(
+  Module: SherpaModule,
+  config: WfloatPrepareTextConfig,
+): WfloatPreparedTextResult {
+  const textStr = config.text;
+  const emotionStr = config.emotion;
+  const styleStr = config.style;
+  const intensity = clampToUnitRange(config.intensity);
+  const pace = clampToUnitRange(config.pace);
+
+  const textLen = Module.lengthBytesUTF8(textStr) + 1;
+  const emotionLen = Module.lengthBytesUTF8(emotionStr) + 1;
+  const styleLen = Module.lengthBytesUTF8(styleStr) + 1;
+
+  const textPtr = Module._malloc(textLen);
+  const emotionPtr = Module._malloc(emotionLen);
+  const stylePtr = Module._malloc(styleLen);
+
+  Module.stringToUTF8(textStr, textPtr, textLen);
+  Module.stringToUTF8(emotionStr, emotionPtr, emotionLen);
+  Module.stringToUTF8(styleStr, stylePtr, styleLen);
+
+  let resultPtr = 0;
+  try {
+    resultPtr = Module._SherpaOnnxOfflineTtsWfloatPrepareText(
+      textPtr,
+      emotionPtr,
+      stylePtr,
+      intensity,
+      pace,
+    );
+
+    if (!resultPtr) {
+      return { text: [], textClean: [] };
+    }
+
+    const raw = Module.UTF8ToString(resultPtr);
+    const parsed = JSON.parse(raw) as WfloatPreparedTextWire;
+
+    return {
+      text: Array.isArray(parsed.text) ? (parsed.text as string[]) : [],
+      textClean: Array.isArray(parsed.text_clean) ? (parsed.text_clean as string[]) : [],
+    };
+  } finally {
+    if (resultPtr) {
+      Module._SherpaOnnxOfflineTtsWfloatFreePreparedText(resultPtr);
+    }
+
+    Module._free(stylePtr);
+    Module._free(emotionPtr);
+    Module._free(textPtr);
+  }
 }
 
 // The user should free the returned pointers
