@@ -7,6 +7,7 @@ import {
 // @ts-ignore
 import createSherpaModule from "./wasm/sherpa-onnx-wasm-main-tts.js";
 import { testText } from "./testText.js";
+export { SpeechClient } from "./speechClient.js";
 
 // const STAGE = "LOCAL"; // "PROD"
 

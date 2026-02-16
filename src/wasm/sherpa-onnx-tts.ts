@@ -1,3 +1,25 @@
+// @ts-ignore
+import createSherpaModule from "./sherpa-onnx-wasm-main-tts.js";
+
+let SherpaModuleInstancePromise: Promise<SherpaModule>;
+const defaultModuleConfig: ModuleConfig = {
+  locateFile: (path: string) => {
+    if (path.endsWith(".wasm")) return "/assets/sherpa-onnx-wasm-main-tts.wasm";
+    if (path.endsWith(".data")) return "/assets/sherpa-onnx-wasm-main-tts.data";
+    return path;
+  },
+  print: (text: string) => console.log(text),
+  printErr: (text: string) => console.error("wasm:", text),
+  onAbort: (what: unknown) => console.error("wasm abort:", what),
+};
+
+export function getSherpaModule() {
+  if (!SherpaModuleInstancePromise) {
+    SherpaModuleInstancePromise = createSherpaModule(defaultModuleConfig);
+  }
+  return SherpaModuleInstancePromise;
+}
+
 export interface SherpaModule {
   _malloc(size: number): number;
   _free(ptr: number): void;
@@ -9,6 +31,7 @@ export interface SherpaModule {
 
   HEAP32: Int32Array;
   HEAPF32: Float32Array;
+  HEAP8: Int8Array;
 
   // Custom helper in your build (as used in the JS)
   _CopyHeap(srcPtr: number, len: number, dstPtr: number): void;
@@ -61,6 +84,13 @@ export interface SherpaModule {
   removeFunction?(ptr: number): void;
 }
 
+export interface ModuleConfig {
+  locateFile?: (path: string) => string;
+  print?: (text: string) => void;
+  printErr?: (text: string) => void;
+  onAbort?: (what: unknown) => void;
+  [key: string]: unknown;
+}
 export interface OfflineTtsVitsModelConfig {
   model?: string;
   lexicon?: string;
