@@ -1,8 +1,8 @@
 import { SpeechClient } from "./dist/index.js";
 
 async function main() {
-    const client = new SpeechClient()
-    await client.init()
+    await SpeechClient.loadModel("")
+    await SpeechClient.generate("","","")
     // await client.init(voiceId="", text="", options={})
 }
 

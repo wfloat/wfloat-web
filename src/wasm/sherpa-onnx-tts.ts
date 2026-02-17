@@ -1,3 +1,5 @@
+import { EmscriptenModule, FS } from "./emscripten.js";
+
 // @ts-ignore
 import createSherpaModule from "./sherpa-onnx-wasm-main-tts.js";
 
@@ -20,7 +22,7 @@ export function getSherpaModule() {
   return SherpaModuleInstancePromise;
 }
 
-export interface SherpaModule {
+export interface SherpaModule extends EmscriptenModule {
   _malloc(size: number): number;
   _free(ptr: number): void;
 
@@ -34,6 +36,8 @@ export interface SherpaModule {
   HEAP8: Int8Array;
 
   // Custom helper in your build (as used in the JS)
+  FS: typeof FS;
+
   _CopyHeap(srcPtr: number, len: number, dstPtr: number): void;
 
   _SherpaOnnxCreateOfflineTts(configPtr: number): number;
