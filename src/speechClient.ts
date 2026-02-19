@@ -24,6 +24,12 @@ type SpeechEmotion =
 
 type SpeechStyle = "default" | "sarcastic" | "playful" | "calm" | "dramatic" | "serious";
 
+type SpeechOnProgressEvent = {
+  progress?: number;
+  textHighlightStart?: number;
+  textHighlightEnd?: number;
+};
+
 type SpeechClientGenerateOptions = {
   voiceId?: string | number;
   text: string;
@@ -31,6 +37,7 @@ type SpeechClientGenerateOptions = {
   style?: SpeechStyle | string;
   intensity?: number;
   speed?: number;
+  onProgressCallback?: (event: SpeechOnProgressEvent) => void;
 };
 
 const VALID_EMOTIONS: SpeechEmotion[] = [
@@ -230,15 +237,29 @@ export class SpeechClient {
       }
     }
 
-    const preparedInput = prepareWfloatText(this.sherpaModule, {
-      text,
-      emotion,
-      style,
-      intensity,
-      pace: 0.5,
-    });
+    const preparedInput = prepareWfloatText(
+      this.sherpaModule,
+      {
+        text,
+        emotion,
+        style,
+        intensity,
+        pace: 0.5,
+      },
+      this.tts.handle,
+    );
+
+    console.log("prepared input", preparedInput);
 
     const textClean = preparedInput.textClean.join(" ");
+
+    let start = performance.now();
+
+    let totalStart = performance.now();
+
+    let totalDuration = 0;
+
+    const sampleRate = this.tts.sampleRate;
 
     const result = this.tts.generateWithProgressCallback(
       {
@@ -247,9 +268,30 @@ export class SpeechClient {
         speed,
       },
       (samples, progress) => {
-        console.log(progress);
+        let end = performance.now();
+
+        let runtime = end - start;
+        totalDuration += runtime;
+        let runtimeSec = runtime / 1000;
+
+        let n = preparedInput.textClean.length;
+        let index = Math.floor(progress * n) - 1;
+
+        console.log({
+          progress,
+          index,
+          currentText: preparedInput.text[index],
+          phonemesPerSecond: preparedInput.textPhonemes[index].length / runtimeSec,
+          "audioPerPhoneme (seconds)":
+            samples.length / sampleRate / preparedInput.textPhonemes[index].length,
+        });
+
+        start = performance.now();
       },
     );
+
+    console.log(`Computed totalDuration (sec): ${totalDuration / 1000}`);
+    console.log(`actual duration (sec): ${(performance.now() - totalStart) / 1000}`);
 
     const filename = "output.wav";
     this.tts.save(filename, result);
