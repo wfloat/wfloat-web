@@ -46,6 +46,7 @@ export interface SherpaModule extends EmscriptenModule {
   _SherpaOnnxOfflineTtsNumSpeakers(handle: number): number;
 
   _SherpaOnnxOfflineTtsWfloatPrepareText(
+    handle: number,
     textPtr: number,
     emotionPtr: number,
     stylePtr: number,
@@ -206,11 +207,13 @@ export interface WfloatPrepareTextConfig {
 export interface WfloatPreparedTextResult {
   text: string[];
   textClean: string[];
+  textPhonemes: string[];
 }
 
 type WfloatPreparedTextWire = {
   text?: unknown;
   text_clean?: unknown;
+  text_phonemes?: unknown;
 };
 
 export interface GeneratedAudio {
@@ -293,6 +296,7 @@ function clampToUnitRange(v: number): number {
 export function prepareWfloatText(
   Module: SherpaModule,
   config: WfloatPrepareTextConfig,
+  ttsHandle = 0,
 ): WfloatPreparedTextResult {
   const textStr = config.text;
   const emotionStr = config.emotion;
@@ -315,6 +319,7 @@ export function prepareWfloatText(
   let resultPtr = 0;
   try {
     resultPtr = Module._SherpaOnnxOfflineTtsWfloatPrepareText(
+      ttsHandle,
       textPtr,
       emotionPtr,
       stylePtr,
@@ -323,7 +328,7 @@ export function prepareWfloatText(
     );
 
     if (!resultPtr) {
-      return { text: [], textClean: [] };
+      return { text: [], textClean: [], textPhonemes: [] };
     }
 
     const raw = Module.UTF8ToString(resultPtr);
@@ -332,6 +337,9 @@ export function prepareWfloatText(
     return {
       text: Array.isArray(parsed.text) ? (parsed.text as string[]) : [],
       textClean: Array.isArray(parsed.text_clean) ? (parsed.text_clean as string[]) : [],
+      textPhonemes: Array.isArray(parsed.text_phonemes)
+        ? (parsed.text_phonemes as string[])
+        : [],
     };
   } finally {
     if (resultPtr) {
