@@ -30,12 +30,12 @@ export class AudioPlayer {
   }
 
   // --- Add audio samples ---
-  public static addSamples(samples: Float32Array<ArrayBuffer>): void {
+  public static addSamples(samples: Float32Array): void {
     this.ensureContext();
     if (!this.audioContext || !this.gainNode) return;
 
     const buffer = this.audioContext.createBuffer(1, samples.length, this.sampleRate);
-    buffer.copyToChannel(samples, 0);
+    buffer.copyToChannel(samples as any, 0);
 
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;

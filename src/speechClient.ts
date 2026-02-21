@@ -11,6 +11,8 @@ import {
   OfflineTtsProgressCallback,
   getSherpaModule,
 } from "./wasm/sherpa-onnx-tts.js";
+import { computeStartTime } from "./util/schedulingUtil.js";
+import { AudioPlayer } from "./audioPlayer.js";
 
 type SpeechEmotion =
   | "neutral"
@@ -21,6 +23,8 @@ type SpeechEmotion =
   | "surprise"
   | "dismissive"
   | "confusion";
+
+type SpeechClientStatus = "playing" | "paused" | "generating";
 
 type SpeechStyle = "default" | "sarcastic" | "playful" | "calm" | "dramatic" | "serious";
 
@@ -93,6 +97,7 @@ const TOKENS_NAME = "wumbospeech0_medium_epoch_332_tokens.txt";
 export class SpeechClient {
   private static sherpaModule: SherpaModule | null = null;
   private static tts: OfflineTts | null = null;
+  private static status: SpeechClientStatus | null = null;
 
   static async loadModel(modelId: string): Promise<void> {
     await this.free();
@@ -183,6 +188,8 @@ export class SpeechClient {
   }
 
   static async generate(options: SpeechClientGenerateOptions): Promise<string> {
+    this.status = "generating";
+
     if (!this.tts || !this.sherpaModule) {
       throw new Error("SpeechClient is not created. Call loadModel() first.");
     }
@@ -260,6 +267,8 @@ export class SpeechClient {
     let totalDuration = 0;
 
     const sampleRate = this.tts.sampleRate;
+    let tStart: number | null;
+    const sentencePhonemesList = preparedInput.textPhonemes;
 
     const result = this.tts.generateWithProgressCallback(
       {
@@ -276,6 +285,29 @@ export class SpeechClient {
 
         let n = preparedInput.textClean.length;
         let index = Math.floor(progress * n) - 1;
+
+        if (index === 0) {
+          let phonemesPerSec = preparedInput.textPhonemes[index].length / runtimeSec;
+          let audioSecPerPhoneme =
+            samples.length / sampleRate / preparedInput.textPhonemes[index].length;
+
+          const preventOverrunConstant = 0.75;
+          phonemesPerSec *= preventOverrunConstant;
+          audioSecPerPhoneme *= preventOverrunConstant;
+          tStart = computeStartTime(sentencePhonemesList, phonemesPerSec, audioSecPerPhoneme);
+        }
+
+        AudioPlayer.addSamples(samples);
+        if (index + 1 < preparedInput.text.length) {
+          AudioPlayer.addSilence();
+        }
+
+        if (totalDuration >= tStart!) {
+          if (this.status === "generating") {
+            this.status = "playing";
+            AudioPlayer.play();
+          }
+        }
 
         console.log({
           progress,
