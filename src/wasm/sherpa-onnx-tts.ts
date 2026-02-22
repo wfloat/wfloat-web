@@ -1,27 +1,5 @@
 import { EmscriptenModule, FS } from "./emscripten.js";
 
-// @ts-ignore
-import createSherpaModule from "./sherpa-onnx-wasm-main-tts.js";
-
-let SherpaModuleInstancePromise: Promise<SherpaModule>;
-const defaultModuleConfig: ModuleConfig = {
-  locateFile: (path: string) => {
-    if (path.endsWith(".wasm")) return "/assets/sherpa-onnx-wasm-main-tts.wasm";
-    if (path.endsWith(".data")) return "/assets/sherpa-onnx-wasm-main-tts.data";
-    return path;
-  },
-  print: (text: string) => console.log(text),
-  printErr: (text: string) => console.error("wasm:", text),
-  onAbort: (what: unknown) => console.error("wasm abort:", what),
-};
-
-export function getSherpaModule() {
-  if (!SherpaModuleInstancePromise) {
-    SherpaModuleInstancePromise = createSherpaModule(defaultModuleConfig);
-  }
-  return SherpaModuleInstancePromise;
-}
-
 export interface SherpaModule extends EmscriptenModule {
   _malloc(size: number): number;
   _free(ptr: number): void;
@@ -337,9 +315,7 @@ export function prepareWfloatText(
     return {
       text: Array.isArray(parsed.text) ? (parsed.text as string[]) : [],
       textClean: Array.isArray(parsed.text_clean) ? (parsed.text_clean as string[]) : [],
-      textPhonemes: Array.isArray(parsed.text_phonemes)
-        ? (parsed.text_phonemes as string[])
-        : [],
+      textPhonemes: Array.isArray(parsed.text_phonemes) ? (parsed.text_phonemes as string[]) : [],
     };
   } finally {
     if (resultPtr) {
