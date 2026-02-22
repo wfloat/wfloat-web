@@ -1,10 +1,12 @@
+type AudioPlayerStatus = "waiting" | "playing" | "paused";
+
 export class AudioPlayer {
   private static audioContext: AudioContext | null = null;
   private static gainNode: GainNode | null = null;
   private static sampleRate: number = 44100;
 
   private static nextStartTime: number = 0;
-  private static isPlaying: boolean = false;
+  private static status: AudioPlayerStatus = "waiting";
   private static scheduledSources: AudioBufferSourceNode[] = [];
 
   // private static masterBuffer: Float32Array<ArrayBuffer> = new Float32Array(new ArrayBuffer(0));
@@ -29,6 +31,10 @@ export class AudioPlayer {
     }
   }
 
+  public static getStatus(): AudioPlayerStatus {
+    return this.status;
+  }
+
   // --- Add audio samples ---
   public static addSamples(samples: Float32Array): void {
     this.ensureContext();
@@ -48,7 +54,7 @@ export class AudioPlayer {
   }
 
   // --- Add silence ---
-  public static addSilence(paddingSeconds: number = 0.1): void {
+  public static addSilence(paddingSeconds: number = 0.2): void {
     const length = Math.floor(this.sampleRate * paddingSeconds);
     const silence = new Float32Array(length);
     this.addSamples(silence);
@@ -59,21 +65,35 @@ export class AudioPlayer {
     this.ensureContext();
     if (!this.audioContext) return;
 
+    // if (this.status === "waiting") {
+    //   console.warn(
+    //     "AudioPlayer.status is currently set to 'waiting'. Cannot call play before audio playback is scheduled to start. This is to prevent overrun where chunks have not generated yet.",
+    //   );
+    //   return;
+    // }
+
     if (this.audioContext.state === "suspended") {
       await this.audioContext.resume();
     }
 
-    this.isPlaying = true;
+    this.status = "playing";
   }
 
   public static async pause(): Promise<void> {
     if (!this.audioContext) return;
 
+    // if (this.status === "waiting") {
+    //   console.warn(
+    //     "AudioPlayer.status is currently set to 'waiting'. Cannot call pause before audio playback is scheduled to start. This is to prevent overrun where chunks have not generated yet.",
+    //   );
+    //   return;
+    // }
+
     if (this.audioContext.state === "running") {
       await this.audioContext.suspend();
     }
 
-    this.isPlaying = false;
+    this.status = "paused";
   }
 
   // --- Volume control ---
@@ -116,7 +136,7 @@ export class AudioPlayer {
 
     this.scheduledSources = [];
     this.nextStartTime = 0;
-    this.isPlaying = false;
+    this.status = "waiting";
 
     if (this.audioContext) {
       this.audioContext.close();

@@ -3,11 +3,21 @@ import {
   ModuleConfig,
   OfflineTts,
   createOfflineTts,
+  prepareWfloatText,
 } from "../wasm/sherpa-onnx-tts.js";
-import { SpeechClientGenerateOptions } from "../speech/speechTypes.js";
+import {
+  SPEAKER_IDS,
+  SpeechClientGenerateOptions,
+  SpeechEmotion,
+  SpeechStyle,
+  VALID_EMOTIONS,
+  VALID_SIDS,
+  VALID_STYLES,
+} from "../speech/speechTypes.js";
 // @ts-ignore
 import createSherpaModule from "../wasm/sherpa-onnx-wasm-main-tts.js";
 import { WorkerRequest, WorkerResponse } from "./workerTypes.js";
+import { computeStartTime } from "../util/schedulingUtil.js";
 
 let SherpaModuleInstancePromise: Promise<SherpaModule>;
 let TTS: OfflineTts | null = null;
@@ -85,169 +95,182 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
     maxNumSentences: 1,
   });
 
-  postResponse({ id, type: "speech-load-model-done" });
+  postResponse({ id, type: "speech-load-model-done", sampleRate: TTS.sampleRate });
 }
 
-// async function handleSpeechGenerate(
-//   id: number,
-//   options: SpeechClientGenerateOptions,
-// ): Promise<string> {
-//   // this.status = "generating";
+async function handleSpeechGenerate(
+  id: number,
+  options: SpeechClientGenerateOptions,
+): Promise<void> {
+  // this.status = "generating";
+  const sherpaModule = await getSherpaModule();
 
-//   // if (!this.tts || !this.sherpaModule) {
-//   if (true) {
-//     throw new Error("SpeechClient is not created. Call loadModel() first.");
-//   }
+  if (!TTS) {
+    throw new Error("SpeechClient is not created. Call loadModel() first.");
+  }
 
-//   const text = options.text;
-//   if (!text) {
-//     throw new Error("text is required.");
-//   }
+  const text = options.text;
+  if (!text) {
+    throw new Error("text is required.");
+  }
 
-//   let emotion: SpeechEmotion = "neutral";
-//   if (VALID_EMOTIONS.includes(options.emotion as SpeechEmotion)) {
-//     emotion = options.emotion as SpeechEmotion;
-//   }
+  let emotion: SpeechEmotion = "neutral";
+  if (VALID_EMOTIONS.includes(options.emotion as SpeechEmotion)) {
+    emotion = options.emotion as SpeechEmotion;
+  }
 
-//   let style: SpeechStyle = "default";
-//   if (VALID_STYLES.includes(options.style as SpeechStyle)) {
-//     style = options.style as SpeechStyle;
-//   }
+  let style: SpeechStyle = "default";
+  if (VALID_STYLES.includes(options.style as SpeechStyle)) {
+    style = options.style as SpeechStyle;
+  }
 
-//   let intensity = 0.5;
-//   if (
-//     typeof options.intensity === "number" &&
-//     Number.isFinite(options.intensity) &&
-//     options.intensity >= 0 &&
-//     options.intensity <= 1
-//   ) {
-//     intensity = options.intensity;
-//   }
+  let intensity = 0.5;
+  if (
+    typeof options.intensity === "number" &&
+    Number.isFinite(options.intensity) &&
+    options.intensity >= 0 &&
+    options.intensity <= 1
+  ) {
+    intensity = options.intensity;
+  }
 
-//   let speed = 1.0;
-//   if (typeof options.speed === "number" && Number.isFinite(options.speed)) {
-//     speed = options.speed;
-//   }
+  let speed = 1.0;
+  if (typeof options.speed === "number" && Number.isFinite(options.speed)) {
+    speed = options.speed;
+  }
 
-//   let sid = 0;
-//   if (typeof options.voiceId === "number") {
-//     if (!Number.isInteger(options.voiceId) || !VALID_SIDS.includes(options.voiceId)) {
-//       throw new Error(`Invalid numeric voiceId: ${options.voiceId}`);
-//     }
-//     sid = options.voiceId;
-//   } else if (typeof options.voiceId === "string") {
-//     const voiceName = options.voiceId.trim();
-//     if (!voiceName) {
-//       sid = 0;
-//     } else {
-//       const mappedSid = SPEAKER_IDS[voiceName];
-//       if (mappedSid !== undefined) {
-//         sid = mappedSid;
-//       } else {
-//         throw new Error(`Invalid string voiceId: ${voiceName}`);
-//       }
-//     }
-//   }
+  let sid = 0;
+  if (typeof options.voiceId === "number") {
+    if (!Number.isInteger(options.voiceId) || !VALID_SIDS.includes(options.voiceId)) {
+      throw new Error(`Invalid numeric voiceId: ${options.voiceId}`);
+    }
+    sid = options.voiceId;
+  } else if (typeof options.voiceId === "string") {
+    const voiceName = options.voiceId.trim();
+    if (!voiceName) {
+      sid = 0;
+    } else {
+      const mappedSid = SPEAKER_IDS[voiceName];
+      if (mappedSid !== undefined) {
+        sid = mappedSid;
+      } else {
+        throw new Error(`Invalid string voiceId: ${voiceName}`);
+      }
+    }
+  }
 
-//   const preparedInput = prepareWfloatText(
-//     this.sherpaModule,
-//     {
-//       text,
-//       emotion,
-//       style,
-//       intensity,
-//       pace: 0.5,
-//     },
-//     this.tts.handle,
-//   );
+  const preparedInput = prepareWfloatText(
+    sherpaModule,
+    {
+      text,
+      emotion,
+      style,
+      intensity,
+      pace: 0.5,
+    },
+    TTS.handle,
+  );
 
-//   console.log("prepared input", preparedInput);
+  console.log("prepared input", preparedInput);
 
-//   const textClean = preparedInput.textClean.join(" ");
+  const textClean = preparedInput.textClean.join(" ");
 
-//   let start = performance.now();
+  let start = performance.now();
 
-//   let totalStart = performance.now();
+  let totalStart = performance.now();
 
-//   let totalDuration = 0;
+  let tRuntime = 0;
 
-//   const sampleRate = this.tts.sampleRate;
-//   let tStart: number | null;
-//   const sentencePhonemesList = preparedInput.textPhonemes;
+  const sampleRate = TTS.sampleRate;
+  let tPlayAudio: number | null;
+  const sentencePhonemesList = preparedInput.textPhonemes;
 
-//   const result = this.tts.generateWithProgressCallback(
-//     {
-//       text: textClean,
-//       sid,
-//       speed,
-//     },
-//     (samples, progress) => {
-//       let end = performance.now();
+  const result = TTS.generateWithProgressCallback(
+    {
+      text: textClean,
+      sid,
+      speed,
+    },
+    (samples, progress) => {
+      let end = performance.now();
 
-//       let runtime = end - start;
-//       totalDuration += runtime;
-//       let runtimeSec = runtime / 1000;
+      let runtime = end - start;
+      tRuntime += runtime;
+      let runtimeSec = runtime / 1000;
 
-//       let n = preparedInput.textClean.length;
-//       let index = Math.floor(progress * n) - 1;
+      let n = preparedInput.textClean.length;
+      let index = Math.floor(progress * n) - 1;
 
-//       if (index === 0) {
-//         let phonemesPerSec = preparedInput.textPhonemes[index].length / runtimeSec;
-//         let audioSecPerPhoneme =
-//           samples.length / sampleRate / preparedInput.textPhonemes[index].length;
+      if (index === 0) {
+        let phonemesPerSec = preparedInput.textPhonemes[index].length / runtimeSec;
+        let audioSecPerPhoneme =
+          samples.length / sampleRate / preparedInput.textPhonemes[index].length;
 
-//         const preventOverrunConstant = 0.75;
-//         phonemesPerSec *= preventOverrunConstant;
-//         audioSecPerPhoneme *= preventOverrunConstant;
-//         tStart = computeStartTime(sentencePhonemesList, phonemesPerSec, audioSecPerPhoneme);
-//       }
+        const preventOverrunConstant = 0.75;
+        phonemesPerSec *= preventOverrunConstant;
+        audioSecPerPhoneme *= preventOverrunConstant;
+        tPlayAudio =
+          computeStartTime(sentencePhonemesList, phonemesPerSec, audioSecPerPhoneme) * 1000;
+      }
 
-//       AudioPlayer.addSamples(samples);
-//       if (index + 1 < preparedInput.text.length) {
-//         AudioPlayer.addSilence();
-//       }
+      // AudioPlayer.addSamples(samples);
+      // if (index + 1 < preparedInput.text.length) {
+      // AudioPlayer.addSilence();
+      // }
 
-//       if (totalDuration >= tStart!) {
-//         if (this.status === "generating") {
-//           this.status = "playing";
-//           AudioPlayer.play();
-//         }
-//       }
+      // if (totalDuration >= tStart!) {
+      //   if (this.status === "generating") {
+      //     this.status = "playing";
+      //     AudioPlayer.play();
+      //   }
+      // }
 
-//       console.log({
-//         progress,
-//         index,
-//         currentText: preparedInput.text[index],
-//         phonemesPerSecond: preparedInput.textPhonemes[index].length / runtimeSec,
-//         "audioPerPhoneme (seconds)":
-//           samples.length / sampleRate / preparedInput.textPhonemes[index].length,
-//       });
+      // console.log({
+      //   progress,
+      //   index,
+      //   currentText: preparedInput.text[index],
+      //   phonemesPerSecond: preparedInput.textPhonemes[index].length / runtimeSec,
+      //   "audioPerPhoneme (seconds)":
+      //     samples.length / sampleRate / preparedInput.textPhonemes[index].length,
+      // });
 
-//       start = performance.now();
-//     },
-//   );
+      postResponse({
+        id,
+        type: "speech-generate-chunk",
+        samples,
+        index,
+        progress,
+        tPlayAudio: tPlayAudio!,
+        tRuntime: tRuntime,
+        highlightStart: 0,
+        highlightEnd: 1,
+      });
 
-//   console.log(`Computed totalDuration (sec): ${totalDuration / 1000}`);
-//   console.log(`actual duration (sec): ${(performance.now() - totalStart) / 1000}`);
+      // start = performance.now();
+    },
+  );
 
-//   const filename = "output.wav";
-//   this.tts.save(filename, result);
+  // console.log(`Computed totalDuration (sec): ${tRuntime / 1000}`);
+  // console.log(`actual duration (sec): ${(performance.now() - totalStart) / 1000}`);
 
-//   // extract wav from emscripten fs
-//   const wav = this.sherpaModule.FS.readFile(filename) as any;
+  // const filename = "output.wav";
+  // this.tts.save(filename, result);
 
-//   // surface it
-//   const blob = new Blob([wav.buffer], { type: "audio/wav" });
-//   const url = URL.createObjectURL(blob);
+  // // extract wav from emscripten fs
+  // const wav = this.sherpaModule.FS.readFile(filename) as any;
 
-//   const el = document.createElement("audio");
-//   el.controls = true;
-//   el.src = url;
-//   document.body.appendChild(el);
+  // // surface it
+  // const blob = new Blob([wav.buffer], { type: "audio/wav" });
+  // const url = URL.createObjectURL(blob);
 
-//   // return url;
-//   postResponse({ id, type: "speech-generate-done" });
-// }
+  // const el = document.createElement("audio");
+  // el.controls = true;
+  // el.src = url;
+  // document.body.appendChild(el);
+
+  // return url;
+  postResponse({ id, type: "speech-generate-done" });
+}
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
@@ -258,10 +281,10 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       return;
     }
 
-    // if (message.type === "speech-generate") {
-    //   handleSpeechGenerate(message.id, message.options);
-    //   return;
-    // }
+    if (message.type === "speech-generate") {
+      handleSpeechGenerate(message.id, message.options);
+      return;
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     postResponse({

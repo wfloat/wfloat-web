@@ -20,16 +20,35 @@ export class SpeechClient {
   private static status: SpeechClientStatus | null = null;
 
   static async loadModel(modelId: string): Promise<void> {
-    console.log("Hello there");
-    await WorkerClient.postMessage({
-      type: "speech-load-model",
-      modelId,
-    });
-    console.log("FOOBAR");
+    if (this.status === "loading-model") {
+      console.warn("dont call this again! this call was ignored.");
+    } else {
+      this.status = "loading-model";
+      console.log("Starting speech model load");
+      await WorkerClient.postMessage({
+        type: "speech-load-model",
+        modelId,
+      });
+      console.log("Speech model loaded complete!");
+      this.status = null;
+    }
   }
 
-  static async generate(options: SpeechClientGenerateOptions): Promise<string> {
-    return "";
+  static async generate(options: SpeechClientGenerateOptions): Promise<void> {
+    AudioPlayer.clear();
+    await WorkerClient.postMessage({
+      type: "speech-generate",
+      options,
+      // options: {
+      //   voiceId?: string | number;
+      //   text: string;
+      //   emotion?: SpeechEmotion | string;
+      //   style?: SpeechStyle | string;
+      //   intensity?: number;
+      //   speed?: number;
+      //   onProgressCallback?: (event: SpeechOnProgressEvent) => void;
+      // }
+    });
     // this.status = "generating";
     // if (!this.tts || !this.sherpaModule) {
     //   throw new Error("SpeechClient is not created. Call loadModel() first.");
