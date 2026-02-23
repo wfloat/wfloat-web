@@ -2,7 +2,8 @@ import { SpeechClientGenerateOptions } from "../speech/speechTypes";
 
 export type WorkerRequestTemplate =
   | { type: "speech-load-model"; modelId: string }
-  | { type: "speech-generate"; options: SpeechClientGenerateOptions };
+  | { type: "speech-generate"; options: SpeechClientGenerateOptions }
+  | { type: "speech-terminate-early" };
 
 export type WorkerRequest = WorkerRequestTemplate & { id: number };
 
@@ -20,4 +21,5 @@ export type WorkerResponse =
       tPlayAudio: number;
       highlightStart: number;
       highlightEnd: number;
-    };
+    }
+  | { id: number; type: "speech-terminate-early-done" };

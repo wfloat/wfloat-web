@@ -21,21 +21,33 @@ export class WorkerClient {
 
       if (message.type === "speech-generate-chunk") {
         console.log(message);
-        AudioPlayer.addSamples(message.samples);
+        // AudioPlayer.addSamples(message.samples);
         if (message.progress < 1) {
-          AudioPlayer.addSilence();
+          // AudioPlayer.addSilence();
         }
         if (message.tRuntime >= message.tPlayAudio) {
-          if (AudioPlayer.getStatus() === "waiting") {
-            AudioPlayer.play();
-          }
+          // if (AudioPlayer.getStatus() === "waiting") {
+          //   console.log("START PLAYING AUDIO NOW!!!!!");
+          //   void AudioPlayer.play().catch((error) => {
+          //     console.warn("AudioPlayer.play() failed", error);
+          //   });
+          // }
         }
         return;
       }
 
       if (message.type === "speech-load-model-done") {
-        AudioPlayer.setSampleRate(message.sampleRate);
+        // AudioPlayer.setSampleRate(message.sampleRate);
       }
+
+      // if (message.type === "speech-terminate-early-done") {
+      //   Atomics.store(this.terminateEarlyView, 0, 0);
+
+      //   this.terminateEarlyResolve?.();
+      //   this.terminateEarlyResolve = null;
+      //   this.terminateEarlyPromise = null;
+      //   return;
+      // }
 
       const pendingRequest = this.pending.get(message.id);
       if (!pendingRequest) return;
@@ -58,6 +70,23 @@ export class WorkerClient {
       }
     };
   }
+
+  // static async terminateSpeechGenerateEarly(): Promise<void> {
+  //   this.init();
+
+  //   if (this.terminateEarlyPromise) {
+  //     // already waiting for speech generation to terminate
+  //     return this.terminateEarlyPromise;
+  //   }
+
+  //   this.terminateEarlyPromise = new Promise<void>((resolve) => {
+  //     this.terminateEarlyResolve = resolve;
+  //   });
+
+  //   Atomics.store(this.terminateEarlyView, 0, 1);
+
+  //   return this.terminateEarlyPromise;
+  // }
 
   static async postMessage(workerRequestTemplate: WorkerRequestTemplate) {
     this.init();

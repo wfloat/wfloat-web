@@ -21,6 +21,9 @@ import { computeStartTime } from "../util/schedulingUtil.js";
 
 let SherpaModuleInstancePromise: Promise<SherpaModule>;
 let TTS: OfflineTts | null = null;
+let CURRENT_GENERATE_ID: number | null = null;
+let DO_EARLY_STOP: Boolean = false;
+let EARLY_STOP_ID: number | null = null;
 
 const defaultModuleConfig: ModuleConfig = {
   locateFile: (path: string) => {
@@ -47,7 +50,7 @@ function postResponse(message: WorkerResponse, transfer: Transferable[] = []): v
 }
 
 async function handleLoadSpeechModel(id: number, modelId: string): Promise<void> {
-  const MODEL_NAME = "wumbospeech0_medium_epoch_614.onnx";
+  const MODEL_NAME = "wumbospeech0_medium_epoch_332.onnx";
   const TOKENS_NAME = "wumbospeech0_medium_epoch_332_tokens.txt";
 
   if (TTS) {
@@ -96,6 +99,12 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
   });
 
   postResponse({ id, type: "speech-load-model-done", sampleRate: TTS.sampleRate });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function handleSpeechGenerate(
@@ -171,105 +180,177 @@ async function handleSpeechGenerate(
     TTS.handle,
   );
 
-  console.log("prepared input", preparedInput);
+  // console.log("prepared input", preparedInput);
 
-  const textClean = preparedInput.textClean.join(" ");
+  // // const textClean = preparedInput.textClean.join(" ");
 
-  let start = performance.now();
+  // let prevStart = performance.now();
 
-  let totalStart = performance.now();
+  // let tRuntime = 0;
 
-  let tRuntime = 0;
+  // const sampleRate = TTS.sampleRate;
+  // let tPlayAudio: number | null;
 
-  const sampleRate = TTS.sampleRate;
-  let tPlayAudio: number | null;
-  const sentencePhonemesList = preparedInput.textPhonemes;
+  for (const textClean in preparedInput.textClean) {
+    await sleep(10);
 
-  const result = TTS.generateWithProgressCallback(
-    {
-      text: textClean,
+    if (id !== CURRENT_GENERATE_ID) {
+      postResponse({ id, type: "speech-terminate-early-done" });
+      return;
+    }
+
+    if (DO_EARLY_STOP && EARLY_STOP_ID) {
+      console.log("EARLY STOP RECEIVED!");
+      postResponse({ id: EARLY_STOP_ID, type: "speech-terminate-early-done" });
+      DO_EARLY_STOP = false;
+      break;
+    }
+
+    console.log(`FOOBAR GENERATE: ${textClean}`);
+    const result = TTS.generate({
+      text: preparedInput.textClean[0],
       sid,
       speed,
-    },
-    (samples, progress) => {
-      let end = performance.now();
+    });
+  }
+  // const resultA = TTS.generate({
+  //   text: preparedInput.textClean[1],
+  //   sid,
+  //   speed,
+  // });
 
-      let runtime = end - start;
-      tRuntime += runtime;
-      let runtimeSec = runtime / 1000;
+  // console.log("HERE");
+  // if (DO_EARLY_STOP && EARLY_STOP_ID) {
+  //   console.log("EARLY STOP RECEIVED!");
+  //   postResponse({ id: EARLY_STOP_ID, type: "speech-terminate-early-done" });
+  //   DO_EARLY_STOP = false;
+  // } else {
+  //   console.log("DOING ");
+  //   const result2 = TTS.generate({
+  //     text: preparedInput.textClean[1],
+  //     sid,
+  //     speed,
+  //   });
+  // }
 
-      let n = preparedInput.textClean.length;
-      let index = Math.floor(progress * n) - 1;
-
-      if (index === 0) {
-        let phonemesPerSec = preparedInput.textPhonemes[index].length / runtimeSec;
-        let audioSecPerPhoneme =
-          samples.length / sampleRate / preparedInput.textPhonemes[index].length;
-
-        const preventOverrunConstant = 0.75;
-        phonemesPerSec *= preventOverrunConstant;
-        audioSecPerPhoneme *= preventOverrunConstant;
-        tPlayAudio =
-          computeStartTime(sentencePhonemesList, phonemesPerSec, audioSecPerPhoneme) * 1000;
-      }
-
-      // AudioPlayer.addSamples(samples);
-      // if (index + 1 < preparedInput.text.length) {
-      // AudioPlayer.addSilence();
-      // }
-
-      // if (totalDuration >= tStart!) {
-      //   if (this.status === "generating") {
-      //     this.status = "playing";
-      //     AudioPlayer.play();
-      //   }
-      // }
-
-      // console.log({
-      //   progress,
-      //   index,
-      //   currentText: preparedInput.text[index],
-      //   phonemesPerSecond: preparedInput.textPhonemes[index].length / runtimeSec,
-      //   "audioPerPhoneme (seconds)":
-      //     samples.length / sampleRate / preparedInput.textPhonemes[index].length,
-      // });
-
-      postResponse({
-        id,
-        type: "speech-generate-chunk",
-        samples,
-        index,
-        progress,
-        tPlayAudio: tPlayAudio!,
-        tRuntime: tRuntime,
-        highlightStart: 0,
-        highlightEnd: 1,
-      });
-
-      // start = performance.now();
-    },
-  );
-
-  // console.log(`Computed totalDuration (sec): ${tRuntime / 1000}`);
-  // console.log(`actual duration (sec): ${(performance.now() - totalStart) / 1000}`);
-
-  // const filename = "output.wav";
-  // this.tts.save(filename, result);
-
-  // // extract wav from emscripten fs
-  // const wav = this.sherpaModule.FS.readFile(filename) as any;
-
-  // // surface it
-  // const blob = new Blob([wav.buffer], { type: "audio/wav" });
-  // const url = URL.createObjectURL(blob);
-
-  // const el = document.createElement("audio");
-  // el.controls = true;
-  // el.src = url;
-  // document.body.appendChild(el);
-
-  // return url;
   postResponse({ id, type: "speech-generate-done" });
+
+  // //   postResponse({
+  // //     id,
+  // //     type: "speech-generate-chunk",
+  // //     samples: result.samples,
+  // //     index,
+  // //     progress,
+  // //     tPlayAudio: tPlayAudio!,
+  // //     tRuntime: tRuntime,
+  // //     highlightStart: 0,
+  // //     highlightEnd: 1,
+  // //   });
+  // // }
+
+  // // const result = TTS.generate(
+  // //   {
+  // //     text: preparedInput.textClean,
+  // //     sid,
+  // //     speed,
+  // //   },
+  // //   (samples, progress) => {
+  // //     // return false;
+  // //     console.warn(`DO_EARLY_STOP value ${EARLY_STOP_BUFFER}`);
+  // //     if (
+  // //       EARLY_STOP_BUFFER &&
+  // //       Atomics.load(EARLY_STOP_BUFFER, 0) === 1 &&
+  // //       Atomics.load(EARLY_STOP_BUFFER, 1) === id
+  // //     ) {
+  // //       return false;
+  // //     }
+
+  // //     let end = performance.now();
+
+  // //     let chunkRuntime = end - prevStart;
+  // //     tRuntime += chunkRuntime;
+  // //     let chunkRuntimeSec = chunkRuntime / 1000;
+
+  // //     let n = preparedInput.textClean.length;
+  // //     let index = Math.floor(progress * n) - 1;
+
+  // //     // if (index === 0) {
+  // //     let phonemesPerSec = (preparedInput.textPhonemes[index].length - 4) / chunkRuntimeSec;
+  // //     let audioSecPerPhoneme =
+  // //       samples.length / sampleRate / (preparedInput.textPhonemes[index].length - 4);
+
+  // //     // phonemesPerSec = 30;
+  // //     const preventOverrunConstant = 0.75;
+  // //     phonemesPerSec *= preventOverrunConstant;
+  // //     audioSecPerPhoneme *= preventOverrunConstant;
+  // //     console.log("PREPARED INPUT");
+  // //     console.log(preparedInput);
+  // //     tPlayAudio =
+  // //       computeStartTime(preparedInput.textPhonemes, phonemesPerSec, audioSecPerPhoneme) * 1000;
+  // //     // }
+
+  // //     // AudioPlayer.addSamples(samples);
+  // //     // if (index + 1 < preparedInput.text.length) {
+  // //     // AudioPlayer.addSilence();
+  // //     // }
+
+  // //     // if (totalDuration >= tStart!) {
+  // //     //   if (this.status === "generating") {
+  // //     //     this.status = "playing";
+  // //     //     AudioPlayer.play();
+  // //     //   }
+  // //     // }
+
+  // //     console.log(`tPlayAudio: ${tPlayAudio}`);
+
+  // //     console.log({
+  // //       // progress,
+  // //       index,
+  // //       // currentText: preparedInput.text[index],
+  // //       phonemesPerSecond: preparedInput.textPhonemes[index].length / chunkRuntimeSec,
+  // //       "audioPerPhoneme (seconds)":
+  // //         samples.length / sampleRate / preparedInput.textPhonemes[index].length,
+  // //     });
+
+  // //     postResponse({
+  // //       id,
+  // //       type: "speech-generate-chunk",
+  // //       samples,
+  // //       index,
+  // //       progress,
+  // //       tPlayAudio: tPlayAudio!,
+  // //       tRuntime: tRuntime,
+  // //       highlightStart: 0,
+  // //       highlightEnd: 1,
+  // //     });
+
+  // //     prevStart = performance.now();
+  // //   },
+  // // );
+
+  // // // console.log(`Computed totalDuration (sec): ${tRuntime / 1000}`);
+  // // // console.log(`actual duration (sec): ${(performance.now() - totalStart) / 1000}`);
+
+  // // // const filename = "output.wav";
+  // // // this.tts.save(filename, result);
+
+  // // // // extract wav from emscripten fs
+  // // // const wav = this.sherpaModule.FS.readFile(filename) as any;
+
+  // // // // surface it
+  // // // const blob = new Blob([wav.buffer], { type: "audio/wav" });
+  // // // const url = URL.createObjectURL(blob);
+
+  // // // const el = document.createElement("audio");
+  // // // el.controls = true;
+  // // // el.src = url;
+  // // // document.body.appendChild(el);
+
+  // // // return url;
+  // // Atomics.store(EARLY_STOP_BUFFER!, 0, 0);
+  // // Atomics.store(EARLY_STOP_BUFFER!, 1, 0);
+
+  // postResponse({ id, type: "speech-generate-done" });
 }
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
@@ -282,7 +363,15 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     }
 
     if (message.type === "speech-generate") {
-      handleSpeechGenerate(message.id, message.options);
+      CURRENT_GENERATE_ID = message.id;
+      await handleSpeechGenerate(message.id, message.options);
+      return;
+    }
+
+    if (message.type === "speech-terminate-early") {
+      console.log(`MESSAGE RECEIVED speech-terminate-early ${message.id}`);
+      DO_EARLY_STOP = true;
+      EARLY_STOP_ID = message.id;
       return;
     }
   } catch (error) {

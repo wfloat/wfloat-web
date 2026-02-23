@@ -8,7 +8,12 @@ export type SpeechEmotion =
   | "dismissive"
   | "confusion";
 
-export type SpeechClientStatus = "playing" | "paused" | "generating" | "loading-model";
+export type SpeechClientStatus =
+  | "off"
+  | "loading-model"
+  | "generating"
+  | "idle"
+  | "terminating-generate";
 
 export type SpeechStyle = "default" | "sarcastic" | "playful" | "calm" | "dramatic" | "serious";
 
