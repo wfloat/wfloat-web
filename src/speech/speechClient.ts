@@ -12,12 +12,13 @@ import {
   // getSherpaModule,
 } from "../wasm/sherpa-onnx-tts.js";
 import { computeStartTime } from "../util/schedulingUtil.js";
-import { AudioPlayer } from "../audioPlayer.js";
+import { AudioPlayer } from "./audioPlayer.js";
 import { SpeechClientStatus, SpeechClientGenerateOptions } from "./speechTypes.js";
 import { WorkerClient } from "../worker/workerClient.js";
 
 export class SpeechClient {
   private static status: SpeechClientStatus = "off";
+  public static player: AudioPlayer | null = null;
 
   static async loadModel(modelId: string): Promise<void> {
     if (this.status === "loading-model") {
@@ -28,6 +29,11 @@ export class SpeechClient {
       await WorkerClient.postMessage({
         type: "speech-load-model",
         modelId,
+      });
+      this.player = new AudioPlayer({
+        inputSampleRate: 22050,
+        scheduleAheadSec: 0.5,
+        tickMs: 50,
       });
       console.log("Speech model loaded complete!");
       this.status = "idle";
@@ -41,7 +47,7 @@ export class SpeechClient {
       await WorkerClient.postMessage({ type: "speech-terminate-early" });
     } else if (this.status === "terminating-generate") {
       console.warn(
-        `Received multiple SpeechClient.generate(...) calls in rapid succession. Ignoring generate call with input text "${options.text.length > 100 ? options.text.slice(0, 100) + "..." : options.text}".`,
+        `Received multiple SpeechClient.generate(...) calls in rapid succession. Ignoring most recent generate call with input text "${options.text.length > 100 ? options.text.slice(0, 100) + "..." : options.text}".`,
       );
       return;
     }

@@ -1,4 +1,5 @@
-import { AudioPlayer } from "../audioPlayer.js";
+import { AudioPlayer } from "../speech/audioPlayer.js";
+import { SpeechClient } from "../speech/speechClient.js";
 import { WorkerRequest, WorkerRequestTemplate, WorkerResponse } from "./workerTypes.js";
 
 export class WorkerClient {
@@ -20,21 +21,57 @@ export class WorkerClient {
       const message = event.data;
 
       if (message.type === "speech-generate-chunk") {
-        console.log(message);
+        // Ignore stale streams if a new generation started
+        // if (!AudioPlayer.isAcceptingStream(message.id)) return;
+
+        // Lock onto the first stream id we see (optional but useful)
+        // AudioPlayer.setActiveStreamId(message.id);
+
         // AudioPlayer.addSamples(message.samples);
-        if (message.progress < 1) {
-          // AudioPlayer.addSilence();
+
+        // Decide when to start actual playback:
+        // You can use your model's timing hints OR buffered audio amount (or both).
+        //
+        // - message.tRuntime and message.tPlayAudio are your model's notion of
+        //   "runtime" and "when audio should start".
+        // - AudioPlayer.getBufferedSeconds() is real buffered audio in the worklet.
+        //
+        SpeechClient.player!.enqueue(message.samples, 22050);
+        const shouldStart = message.tRuntime >= message.tPlayAudio;
+        if (shouldStart) {
+          // Open the gate so scheduling begins *but only if the user hasn't paused*.
+          // (If the user never pressed Play, this will just buffer until they do.)
+          SpeechClient.player!.setStartGateOpen(true);
         }
-        if (message.tRuntime >= message.tPlayAudio) {
-          // if (AudioPlayer.getStatus() === "waiting") {
-          //   console.log("START PLAYING AUDIO NOW!!!!!");
-          //   void AudioPlayer.play().catch((error) => {
-          //     console.warn("AudioPlayer.play() failed", error);
-          //   });
-          // }
-        }
+        if (shouldStart && !SpeechClient.player!.isPausedByUser) void SpeechClient.player!.play();
+
+        // // const state = AudioPlayer.getState();
+        // console.log(`Audio player state ${state}`);
+        // if (shouldStart && (state === "waiting" || state === "primed")) {
+        //   void AudioPlayer.play();
+        // }
+
         return;
       }
+
+      // if (message.type === "speech-generate-chunk") {
+      //   console.log(message.id, message.index);
+      //   // AudioPlayer.addSamples(message.samples);
+      //   if (message.progress < 1) {
+      //     // AudioPlayer.addSilence();
+      //   }
+      //   if (message.tRuntime >= message.tPlayAudio) {
+      //     if (// AudioPlayer workerId matches this message and the AudioPlayer is in a waiting state (not playing or paused)) {
+      //       console.log("START PLAYING AUDIO NOW!!!!!");
+      //       //   void AudioPlayer.play().catch((error) => {
+      //       //     console.warn("AudioPlayer.play() failed", error);
+      //       //   });
+      //     }
+      //   } else {
+      //     console.log("NOT YET!!");
+      //   }
+      //   return;
+      // }
 
       if (message.type === "speech-load-model-done") {
         // AudioPlayer.setSampleRate(message.sampleRate);
@@ -70,23 +107,6 @@ export class WorkerClient {
       }
     };
   }
-
-  // static async terminateSpeechGenerateEarly(): Promise<void> {
-  //   this.init();
-
-  //   if (this.terminateEarlyPromise) {
-  //     // already waiting for speech generation to terminate
-  //     return this.terminateEarlyPromise;
-  //   }
-
-  //   this.terminateEarlyPromise = new Promise<void>((resolve) => {
-  //     this.terminateEarlyResolve = resolve;
-  //   });
-
-  //   Atomics.store(this.terminateEarlyView, 0, 1);
-
-  //   return this.terminateEarlyPromise;
-  // }
 
   static async postMessage(workerRequestTemplate: WorkerRequestTemplate) {
     this.init();
