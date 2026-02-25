@@ -22,7 +22,7 @@ export type AudioPlayerOptions = {
   safetySec?: number; // default 0.02
 
   /** Fade time for pause/resume to reduce clicks. */
-  rampSec?: number; // default 0.01
+  rampSec?: number;
 
   /**
    * Start-gate initial state:
@@ -52,7 +52,52 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function holdAudioParamAtTime(param: AudioParam, t: number): void {
+  const withHold = param as AudioParam & { cancelAndHoldAtTime?: (cancelTime: number) => void };
+  if (typeof withHold.cancelAndHoldAtTime === "function") {
+    withHold.cancelAndHoldAtTime(t);
+    return;
+  }
+
+  // Fallback for browsers without cancelAndHoldAtTime().
+  param.cancelScheduledValues(t);
+  param.setValueAtTime(param.value, t);
+}
+
+function createSilentWavBlobUrl(durationSec = 1, sampleRate = 8000): string {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const frameCount = Math.max(1, Math.floor(durationSec * sampleRate));
+  const dataSize = frameCount * numChannels * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeAscii = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true); // PCM fmt chunk size
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
+  view.setUint16(32, numChannels * bytesPerSample, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeAscii(36, "data");
+  view.setUint32(40, dataSize, true);
+  // Data bytes are already zeroed => silence.
+
+  return URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
+}
+
 export class AudioPlayer {
+  private static silentMediaUrl: string | null = null;
+
   private readonly inputSampleRate: number;
   private readonly scheduleAheadSec: number;
   private readonly tickMs: number;
@@ -61,6 +106,7 @@ export class AudioPlayer {
 
   private readonly ctx: AudioContext;
   private readonly gain: GainNode;
+  private readonly silentMediaEl: HTMLAudioElement;
 
   // Not-yet-scheduled audio
   private queue: AudioBuffer[] = [];
@@ -88,7 +134,7 @@ export class AudioPlayer {
     this.scheduleAheadSec = opts.scheduleAheadSec ?? 0.5;
     this.tickMs = opts.tickMs ?? 50;
     this.safetySec = opts.safetySec ?? 0.02;
-    this.rampSec = opts.rampSec ?? 0.01;
+    this.rampSec = opts.rampSec ?? 0.03;
     this.startGateOpen = opts.startGateInitiallyOpen ?? true;
 
     this.ctx = new AudioContext({
@@ -99,6 +145,9 @@ export class AudioPlayer {
     this.gain = this.ctx.createGain();
     this.gain.gain.value = 1;
     this.gain.connect(this.ctx.destination);
+
+    this.silentMediaEl = this.createSilentMediaElement();
+    this.configurePlaybackAudioSession();
 
     // Start paused
     void this.ctx.suspend();
@@ -189,12 +238,15 @@ export class AudioPlayer {
     this.playRequested = true;
     this.pausedByUserExplicitly = false;
 
+    this.configurePlaybackAudioSession();
+    await this.startSilentMediaKeepalive();
+
     // If already running, nothing else needed.
     if (this.ctx.state === "running") return;
 
     // Fade-in (when we actually resume)
     const t = this.ctx.currentTime;
-    this.gain.gain.cancelScheduledValues(t);
+    holdAudioParamAtTime(this.gain.gain, t);
     this.gain.gain.setValueAtTime(0, t);
     this.gain.gain.linearRampToValueAtTime(1, t + this.rampSec);
 
@@ -212,16 +264,23 @@ export class AudioPlayer {
 
     this.playRequested = false;
 
-    if (this.ctx.state !== "running") return;
+    if (this.ctx.state !== "running") {
+      this.stopSilentMediaKeepalive();
+      return;
+    }
 
     // Fade-out then suspend (reduces click)
     const t = this.ctx.currentTime;
-    this.gain.gain.cancelScheduledValues(t);
-    this.gain.gain.setValueAtTime(this.gain.gain.value, t);
-    this.gain.gain.linearRampToValueAtTime(0, t + this.rampSec);
+    const fadeEnd = t + this.rampSec;
+    holdAudioParamAtTime(this.gain.gain, t);
+    this.gain.gain.linearRampToValueAtTime(0, fadeEnd);
 
-    await sleep(Math.ceil(this.rampSec * 1000));
+    // Give the render thread a tiny cushion so suspend() doesn't cut the ramp mid-sample.
+    await sleep(Math.ceil((this.rampSec + 0.005) * 1000));
+    holdAudioParamAtTime(this.gain.gain, this.ctx.currentTime);
+    this.gain.gain.setValueAtTime(0, this.ctx.currentTime);
     await this.ctx.suspend();
+    this.stopSilentMediaKeepalive();
   }
 
   /**
@@ -254,6 +313,7 @@ export class AudioPlayer {
     this.timer = null;
 
     this.clear();
+    this.stopSilentMediaKeepalive();
     await this.ctx.close();
   }
 
@@ -300,5 +360,62 @@ export class AudioPlayer {
 
     src.start(this.nextTime);
     this.nextTime += buf.duration;
+  }
+
+  private createSilentMediaElement(): HTMLAudioElement {
+    if (!AudioPlayer.silentMediaUrl) {
+      AudioPlayer.silentMediaUrl = createSilentWavBlobUrl();
+    }
+
+    const el = new Audio();
+    el.src = AudioPlayer.silentMediaUrl;
+    el.loop = true;
+    el.preload = "auto";
+    el.crossOrigin = "anonymous";
+    el.setAttribute("playsinline", "");
+    el.setAttribute("webkit-playsinline", "");
+    el.setAttribute("x-webkit-airplay", "deny");
+
+    try {
+      (el as HTMLAudioElement & { disableRemotePlayback?: boolean }).disableRemotePlayback = true;
+    } catch {
+      // ignore
+    }
+
+    return el;
+  }
+
+  private configurePlaybackAudioSession(): void {
+    try {
+      const nav = navigator as Navigator & {
+        audioSession?: {
+          type: string;
+        };
+      };
+      if (nav.audioSession) {
+        nav.audioSession.type = "playback";
+      }
+    } catch {
+      // Experimental API; ignore on unsupported browsers.
+    }
+  }
+
+  private async startSilentMediaKeepalive(): Promise<void> {
+    try {
+      if (!this.silentMediaEl.paused) return;
+      this.silentMediaEl.currentTime = 0;
+      await this.silentMediaEl.play();
+    } catch {
+      // Best-effort iOS workaround. AudioContext resume() is still the primary path.
+    }
+  }
+
+  private stopSilentMediaKeepalive(): void {
+    try {
+      this.silentMediaEl.pause();
+      this.silentMediaEl.currentTime = 0;
+    } catch {
+      // ignore
+    }
   }
 }

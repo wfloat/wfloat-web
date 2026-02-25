@@ -7,7 +7,6 @@ import {
 } from "../wasm/sherpa-onnx-tts.js";
 import {
   SPEAKER_IDS,
-  SpeechClientGenerateOptions,
   SpeechEmotion,
   SpeechStyle,
   VALID_EMOTIONS,
@@ -16,7 +15,11 @@ import {
 } from "../speech/speechTypes.js";
 // @ts-ignore
 import createSherpaModule from "../wasm/sherpa-onnx-wasm-main-tts.js";
-import { WorkerRequest, WorkerResponse } from "./workerTypes.js";
+import {
+  SpeechGenerateWorkerOptions as SpeechGenerateWorkerOptions,
+  WorkerRequest,
+  WorkerResponse,
+} from "./workerTypes.js";
 import { computeStartTime } from "../util/schedulingUtil.js";
 
 let SherpaModuleInstancePromise: Promise<SherpaModule>;
@@ -109,7 +112,7 @@ function sleep(ms: number): Promise<void> {
 
 async function handleSpeechGenerate(
   id: number,
-  options: SpeechClientGenerateOptions,
+  options: SpeechGenerateWorkerOptions,
 ): Promise<void> {
   // this.status = "generating";
   const sherpaModule = await getSherpaModule();

@@ -18,12 +18,13 @@ export type SpeechClientStatus =
 export type SpeechStyle = "default" | "sarcastic" | "playful" | "calm" | "dramatic" | "serious";
 
 export type SpeechOnProgressEvent = {
-  progress?: number;
-  textHighlightStart?: number;
-  textHighlightEnd?: number;
+  progress: number;
+  isPlaying: boolean;
+  textHighlightStart: number;
+  textHighlightEnd: number;
 };
 
-export type SpeechClientGenerateOptions = {
+export type SpeechGenerateOptions = {
   voiceId?: string | number;
   text: string;
   emotion?: SpeechEmotion | string;

@@ -1,8 +1,8 @@
-import { SpeechClientGenerateOptions } from "../speech/speechTypes";
+import { SpeechGenerateOptions } from "../speech/speechTypes";
 
 export type WorkerRequestTemplate =
   | { type: "speech-load-model"; modelId: string }
-  | { type: "speech-generate"; options: SpeechClientGenerateOptions }
+  | { type: "speech-generate"; options: SpeechGenerateWorkerOptions }
   | { type: "speech-terminate-early" };
 
 export type WorkerRequest = WorkerRequestTemplate & { id: number };
@@ -23,3 +23,5 @@ export type WorkerResponse =
       highlightEnd: number;
     }
   | { id: number; type: "speech-terminate-early-done" };
+
+export type SpeechGenerateWorkerOptions = Omit<SpeechGenerateOptions, "onProgressCallback">;

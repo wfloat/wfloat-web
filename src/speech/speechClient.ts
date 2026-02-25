@@ -13,12 +13,13 @@ import {
 } from "../wasm/sherpa-onnx-tts.js";
 import { computeStartTime } from "../util/schedulingUtil.js";
 import { AudioPlayer } from "./audioPlayer.js";
-import { SpeechClientStatus, SpeechClientGenerateOptions } from "./speechTypes.js";
+import { SpeechClientStatus, SpeechGenerateOptions, SpeechOnProgressEvent } from "./speechTypes.js";
 import { WorkerClient } from "../worker/workerClient.js";
 
 export class SpeechClient {
   private static status: SpeechClientStatus = "off";
   public static player: AudioPlayer | null = null;
+  private static onProgressCallback: ((event: SpeechOnProgressEvent) => void) | null = null;
 
   static async loadModel(modelId: string): Promise<void> {
     if (this.status === "loading-model") {
@@ -40,7 +41,7 @@ export class SpeechClient {
     }
   }
 
-  static async generate(options: SpeechClientGenerateOptions): Promise<void> {
+  static async generate(options: SpeechGenerateOptions): Promise<void> {
     // AudioPlayer.clear();
     if (this.status === "generating") {
       this.status = "terminating-generate";
@@ -53,21 +54,15 @@ export class SpeechClient {
     }
 
     this.status = "generating";
-    // await AudioPlayer.primePlaybackSession();
+    if (options.onProgressCallback) {
+      this.onProgressCallback = options.onProgressCallback;
+    }
     await WorkerClient.postMessage({
       type: "speech-generate",
       options,
-      // options: {
-      //   voiceId?: string | number;
-      //   text: string;
-      //   emotion?: SpeechEmotion | string;
-      //   style?: SpeechStyle | string;
-      //   intensity?: number;
-      //   speed?: number;
-      //   onProgressCallback?: (event: SpeechOnProgressEvent) => void;
-      // }
     });
     console.log("SPEECH GENERATION COMPLETE");
+    this.onProgressCallback = null;
     this.status = "idle";
   }
 
