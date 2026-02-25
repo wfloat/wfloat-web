@@ -236,6 +236,7 @@ async function handleSpeechGenerate(
         tRuntime: tRuntime,
         highlightStart: 0,
         highlightEnd: 1,
+        text: preparedInput.text[i],
       },
       // [result.samples.buffer],
     );

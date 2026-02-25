@@ -109,11 +109,13 @@ export class AudioPlayer {
   private readonly silentMediaEl: HTMLAudioElement;
 
   // Not-yet-scheduled audio
-  private queue: AudioBuffer[] = [];
+  private queue: Array<{ buffer: AudioBuffer; onStart?: (() => void) | undefined }> = [];
   private queuedSec = 0;
 
   // Sources already scheduled (so clear() can stop them)
   private scheduled = new Set<AudioBufferSourceNode>();
+  private pendingChunkStartCallbacks: Array<{ startTime: number; callback: () => void }> = [];
+  private activeChunkStartCallback: (() => void) | null = null;
 
   // Next scheduled start time in AudioContext time
   private nextTime = 0;
@@ -166,6 +168,10 @@ export class AudioPlayer {
     return this.pausedByUserExplicitly;
   }
 
+  get isStartGateOpen(): boolean {
+    return this.startGateOpen;
+  }
+
   /**
    * If user pressed Play but gate is closed (waiting for shouldStart),
    * state is "waiting" instead of "playing".
@@ -183,7 +189,11 @@ export class AudioPlayer {
   }
 
   /** Enqueue a mono chunk (sequential). */
-  enqueue(samples: Float32Array, sampleRate = this.inputSampleRate): void {
+  enqueue(
+    samples: Float32Array,
+    sampleRate = this.inputSampleRate,
+    onStart?: () => void,
+  ): void {
     if (this.disposed) throw new Error("AudioPlayer is disposed");
     if (samples.length === 0) return;
 
@@ -192,7 +202,7 @@ export class AudioPlayer {
     const buf = this.ctx.createBuffer(1, pcm.length, this.ctx.sampleRate);
     buf.copyToChannel(pcm as any, 0);
 
-    this.queue.push(buf);
+    this.queue.push({ buffer: buf, onStart });
     this.queuedSec += buf.duration;
   }
 
@@ -219,6 +229,10 @@ export class AudioPlayer {
     if (!wasOpen && open) {
       // Start scheduling from "now" so we don't have a big silent gap from old nextTime.
       this.nextTime = this.ctx.currentTime + this.safetySec;
+    }
+
+    if (wasOpen !== open) {
+      this.notifyActiveChunkStateChanged();
     }
   }
 
@@ -251,6 +265,7 @@ export class AudioPlayer {
     this.gain.gain.linearRampToValueAtTime(1, t + this.rampSec);
 
     await this.ctx.resume();
+    this.notifyActiveChunkStateChanged();
   }
 
   /**
@@ -263,6 +278,7 @@ export class AudioPlayer {
     if (!this.playRequested) return;
 
     this.playRequested = false;
+    this.notifyActiveChunkStateChanged();
 
     if (this.ctx.state !== "running") {
       this.stopSilentMediaKeepalive();
@@ -301,6 +317,8 @@ export class AudioPlayer {
 
     this.queue.length = 0;
     this.queuedSec = 0;
+    this.pendingChunkStartCallbacks.length = 0;
+    this.activeChunkStartCallback = null;
 
     this.nextTime = this.ctx.currentTime + this.safetySec;
   }
@@ -326,6 +344,7 @@ export class AudioPlayer {
 
   private tick(): void {
     if (this.disposed) return;
+    this.flushStartedChunkCallbacks();
 
     // Do not schedule unless:
     // - user wants play, and
@@ -342,15 +361,15 @@ export class AudioPlayer {
     const horizon = now + this.scheduleAheadSec;
 
     while (this.nextTime < horizon && this.queue.length > 0) {
-      const buf = this.queue.shift()!;
-      this.queuedSec -= buf.duration;
-      this.scheduleBuffer(buf);
+      const chunk = this.queue.shift()!;
+      this.queuedSec -= chunk.buffer.duration;
+      this.scheduleBuffer(chunk.buffer, chunk.onStart);
     }
 
     // If queue is empty, we schedule nothing => silence until more chunks arrive.
   }
 
-  private scheduleBuffer(buf: AudioBuffer): void {
+  private scheduleBuffer(buf: AudioBuffer, onStart?: () => void): void {
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.gain);
@@ -358,8 +377,32 @@ export class AudioPlayer {
     this.scheduled.add(src);
     src.onended = () => this.scheduled.delete(src);
 
-    src.start(this.nextTime);
+    const startTime = this.nextTime;
+    src.start(startTime);
+    if (onStart) {
+      this.pendingChunkStartCallbacks.push({ startTime, callback: onStart });
+    }
     this.nextTime += buf.duration;
+  }
+
+  private flushStartedChunkCallbacks(): void {
+    if (this.pendingChunkStartCallbacks.length === 0) return;
+
+    const now = this.ctx.currentTime;
+    const epsilonSec = 0.005;
+
+    while (
+      this.pendingChunkStartCallbacks.length > 0 &&
+      this.pendingChunkStartCallbacks[0].startTime <= now + epsilonSec
+    ) {
+      const pending = this.pendingChunkStartCallbacks.shift()!;
+      this.activeChunkStartCallback = pending.callback;
+      pending.callback();
+    }
+  }
+
+  private notifyActiveChunkStateChanged(): void {
+    this.activeChunkStartCallback?.();
   }
 
   private createSilentMediaElement(): HTMLAudioElement {

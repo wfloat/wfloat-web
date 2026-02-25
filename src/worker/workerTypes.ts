@@ -21,6 +21,7 @@ export type WorkerResponse =
       tPlayAudio: number;
       highlightStart: number;
       highlightEnd: number;
+      text: string;
     }
   | { id: number; type: "speech-terminate-early-done" };
 

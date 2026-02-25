@@ -22,6 +22,7 @@ export type SpeechOnProgressEvent = {
   isPlaying: boolean;
   textHighlightStart: number;
   textHighlightEnd: number;
+  text: string;
 };
 
 export type SpeechGenerateOptions = {

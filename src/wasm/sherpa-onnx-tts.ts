@@ -975,7 +975,7 @@ export class OfflineTts {
   public Module: SherpaModule;
 
   constructor(configObj: OfflineTtsConfig, Module: SherpaModule) {
-    console.log(configObj);
+    // console.log(configObj);
     const config = initSherpaOnnxOfflineTtsConfig(configObj, Module);
     const handle = Module._SherpaOnnxCreateOfflineTts(config.ptr);
 

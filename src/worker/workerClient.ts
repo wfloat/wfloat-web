@@ -36,7 +36,18 @@ export class WorkerClient {
         //   "runtime" and "when audio should start".
         // - AudioPlayer.getBufferedSeconds() is real buffered audio in the worklet.
         //
-        SpeechClient.player!.enqueue(message.samples, 22050);
+        const onProgressCallback = SpeechClient.getOnProgressCallback();
+        SpeechClient.player!.enqueue(message.samples, 22050, () => {
+          if (!onProgressCallback) return;
+
+          onProgressCallback({
+            progress: message.progress,
+            isPlaying: SpeechClient.player?.isPlaying ?? false,
+            textHighlightStart: message.highlightStart,
+            textHighlightEnd: message.highlightEnd,
+            text: message.text,
+          });
+        });
         const shouldStart = message.tRuntime >= message.tPlayAudio;
         if (shouldStart) {
           // Open the gate so scheduling begins *but only if the user hasn't paused*.
