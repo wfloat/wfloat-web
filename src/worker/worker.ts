@@ -5,14 +5,7 @@ import {
   createOfflineTts,
   prepareWfloatText,
 } from "../wasm/sherpa-onnx-tts.js";
-import {
-  SPEAKER_IDS,
-  SpeechEmotion,
-  SpeechStyle,
-  VALID_EMOTIONS,
-  VALID_SIDS,
-  VALID_STYLES,
-} from "../speech/speechTypes.js";
+import { SPEAKER_IDS, SpeechEmotion, VALID_EMOTIONS, VALID_SIDS } from "../speech/speechTypes.js";
 // @ts-ignore
 import createSherpaModule from "../wasm/sherpa-onnx-wasm-main-tts.js";
 import {
@@ -118,7 +111,7 @@ async function handleSpeechGenerate(
   const sherpaModule = await getSherpaModule();
 
   if (!TTS) {
-    throw new Error("SpeechClient is not created. Call loadModel() first.");
+    throw new Error("SpeechClient is not created. Call SpeechClient.loadModel(...) first.");
   }
 
   const text = options.text;
@@ -129,11 +122,6 @@ async function handleSpeechGenerate(
   let emotion: SpeechEmotion = "neutral";
   if (VALID_EMOTIONS.includes(options.emotion as SpeechEmotion)) {
     emotion = options.emotion as SpeechEmotion;
-  }
-
-  let style: SpeechStyle = "default";
-  if (VALID_STYLES.includes(options.style as SpeechStyle)) {
-    style = options.style as SpeechStyle;
   }
 
   let intensity = 0.5;
@@ -176,9 +164,7 @@ async function handleSpeechGenerate(
     {
       text,
       emotion,
-      style,
       intensity,
-      pace: 0.5,
     },
     TTS.handle,
   );

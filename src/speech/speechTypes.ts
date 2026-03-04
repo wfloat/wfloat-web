@@ -15,8 +15,6 @@ export type SpeechClientStatus =
   | "idle"
   | "terminating-generate";
 
-export type SpeechStyle = "default" | "sarcastic" | "playful" | "calm" | "dramatic" | "serious";
-
 export type SpeechOnProgressEvent = {
   progress: number;
   isPlaying: boolean;
@@ -29,7 +27,6 @@ export type SpeechGenerateOptions = {
   voiceId?: string | number;
   text: string;
   emotion?: SpeechEmotion | string;
-  style?: SpeechStyle | string;
   intensity?: number;
   speed?: number;
   onProgressCallback?: (event: SpeechOnProgressEvent) => void;
@@ -44,15 +41,6 @@ export const VALID_EMOTIONS: SpeechEmotion[] = [
   "surprise",
   "dismissive",
   "confusion",
-];
-
-export const VALID_STYLES: SpeechStyle[] = [
-  "default",
-  "sarcastic",
-  "playful",
-  "calm",
-  "dramatic",
-  "serious",
 ];
 
 export const SPEAKER_IDS: Record<string, number> = {

@@ -27,9 +27,7 @@ export interface SherpaModule extends EmscriptenModule {
     handle: number,
     textPtr: number,
     emotionPtr: number,
-    stylePtr: number,
     intensity: number,
-    pace: number,
   ): number;
   _SherpaOnnxOfflineTtsWfloatFreePreparedText(ptr: number): void;
 
@@ -177,9 +175,7 @@ export interface OfflineTtsGenerateConfig {
 export interface WfloatPrepareTextConfig {
   text: string;
   emotion: string;
-  style: string;
   intensity: number;
-  pace: number;
 }
 
 export interface WfloatPreparedTextResult {
@@ -278,21 +274,16 @@ export function prepareWfloatText(
 ): WfloatPreparedTextResult {
   const textStr = config.text;
   const emotionStr = config.emotion;
-  const styleStr = config.style;
   const intensity = clampToUnitRange(config.intensity);
-  const pace = clampToUnitRange(config.pace);
 
   const textLen = Module.lengthBytesUTF8(textStr) + 1;
   const emotionLen = Module.lengthBytesUTF8(emotionStr) + 1;
-  const styleLen = Module.lengthBytesUTF8(styleStr) + 1;
 
   const textPtr = Module._malloc(textLen);
   const emotionPtr = Module._malloc(emotionLen);
-  const stylePtr = Module._malloc(styleLen);
 
   Module.stringToUTF8(textStr, textPtr, textLen);
   Module.stringToUTF8(emotionStr, emotionPtr, emotionLen);
-  Module.stringToUTF8(styleStr, stylePtr, styleLen);
 
   let resultPtr = 0;
   try {
@@ -300,9 +291,7 @@ export function prepareWfloatText(
       ttsHandle,
       textPtr,
       emotionPtr,
-      stylePtr,
       intensity,
-      pace,
     );
 
     if (!resultPtr) {
@@ -322,7 +311,6 @@ export function prepareWfloatText(
       Module._SherpaOnnxOfflineTtsWfloatFreePreparedText(resultPtr);
     }
 
-    Module._free(stylePtr);
     Module._free(emotionPtr);
     Module._free(textPtr);
   }
