@@ -212,6 +212,15 @@ export class AudioPlayer {
     this.queuedSec += buf.duration;
   }
 
+  /** Enqueue a silent chunk for the given duration in seconds. */
+  enqueueSilence(durationSec: number, sampleRate = this.inputSampleRate): void {
+    if (this.disposed) throw new Error("AudioPlayer is disposed");
+    if (durationSec <= 0) return;
+
+    const frameCount = Math.max(1, Math.round(durationSec * sampleRate));
+    this.enqueue(new Float32Array(frameCount), sampleRate);
+  }
+
   /**
    * Optional helper if you receive a transferred ArrayBuffer + known length.
    * If you send Float32Array directly (recommended), you don't need this.

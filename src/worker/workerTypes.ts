@@ -16,6 +16,7 @@ export type WorkerResponse =
       type: "speech-generate-chunk";
       samples: Float32Array;
       index: number;
+      silencePaddingSec: number;
       progress: number;
       tRuntime: number;
       tPlayAudio: number;

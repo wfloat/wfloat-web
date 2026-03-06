@@ -29,6 +29,7 @@ export type SpeechGenerateOptions = {
   emotion?: SpeechEmotion | string;
   intensity?: number;
   speed?: number;
+  silencePaddingSec?: number;
   onProgressCallback?: (event: SpeechOnProgressEvent) => void;
 };
 

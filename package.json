@@ -19,10 +19,11 @@
     "dist"
   ],
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "esbuild": "^0.20.0"
   },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc && node scripts/build-worker-inline.mjs"
   },
   "author": "",
   "license": "MIT"

@@ -143,6 +143,15 @@ async function handleSpeechGenerate(
     speed = options.speed;
   }
 
+  let silencePaddingSec = 0.1;
+  if (
+    typeof options.silencePaddingSec === "number" &&
+    Number.isFinite(options.silencePaddingSec) &&
+    options.silencePaddingSec >= 0
+  ) {
+    silencePaddingSec = options.silencePaddingSec;
+  }
+
   let sid = 0;
   if (typeof options.voiceId === "number") {
     if (!Number.isInteger(options.voiceId) || !VALID_SIDS.includes(options.voiceId)) {
@@ -221,6 +230,7 @@ async function handleSpeechGenerate(
         type: "speech-generate-chunk",
         samples: result.samples,
         index: i,
+        silencePaddingSec,
         progress,
         tPlayAudio: tPlayAudio!,
         tRuntime: tRuntime,

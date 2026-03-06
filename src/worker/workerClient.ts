@@ -4,15 +4,13 @@ import { WorkerRequest, WorkerRequestTemplate, WorkerResponse } from "./workerTy
 import workerCode from "./worker-inline.js";
 
 const blob = new Blob([workerCode], { type: "text/javascript" });
+const CHUNK_SAMPLE_RATE = 22050;
 
 export class WorkerClient {
   private static id: number = 1;
   private static worker = new Worker(URL.createObjectURL(blob), { type: "module" });
   private static initialized = false;
-  private static pending = new Map<
-    number,
-    { resolve: (value: unknown) => void; reject: (err: Error) => void }
-  >();
+  private static pending = new Map<number, { resolve: (value: unknown) => void; reject: (err: Error) => void }>();
 
   private static init(): void {
     if (this.initialized) return;
@@ -34,7 +32,7 @@ export class WorkerClient {
         if (!player || player.isLocked) return;
 
         const onProgressCallback = SpeechClient.getOnProgressCallback();
-        player.enqueue(message.samples, 22050, () => {
+        player.enqueue(message.samples, CHUNK_SAMPLE_RATE, () => {
           if (!onProgressCallback) return;
 
           onProgressCallback({
@@ -45,6 +43,9 @@ export class WorkerClient {
             text: message.text,
           });
         });
+        if (message.progress < 1 && message.silencePaddingSec > 0) {
+          player.enqueueSilence(message.silencePaddingSec, CHUNK_SAMPLE_RATE);
+        }
         const shouldStart = message.tRuntime >= message.tPlayAudio;
         if (shouldStart) {
           // Open the gate so scheduling begins *but only if the user hasn't paused*.
