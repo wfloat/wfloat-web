@@ -1,12 +1,13 @@
-import { AudioPlayer } from "../speech/audioPlayer.js";
 import { SpeechClient } from "../speech/speechClient.js";
 import { WorkerRequest, WorkerRequestTemplate, WorkerResponse } from "./workerTypes.js";
+// @ts-ignore
+import workerCode from "./worker-inline.js";
+
+const blob = new Blob([workerCode], { type: "text/javascript" });
 
 export class WorkerClient {
   private static id: number = 1;
-  private static worker = new Worker(new URL("./worker.js", import.meta.url), {
-    type: "module",
-  });
+  private static worker = new Worker(URL.createObjectURL(blob), { type: "module" });
   private static initialized = false;
   private static pending = new Map<
     number,
@@ -21,28 +22,24 @@ export class WorkerClient {
       const message = event.data;
 
       if (message.type === "speech-generate-chunk") {
-        // Ignore stale streams if a new generation started
-        // if (!AudioPlayer.isAcceptingStream(message.id)) return;
+        const pendingRequest = this.pending.get(message.id);
+        if (!pendingRequest) {
+          console.warn(
+            `Ignoring 'speech-generate-chunk' response received from the web worker with id: '${message.id}' but there is no speech-generate message in the queue with this id.`,
+          );
+          return;
+        }
 
-        // Lock onto the first stream id we see (optional but useful)
-        // AudioPlayer.setActiveStreamId(message.id);
+        const player = SpeechClient.player;
+        if (!player || player.isLocked) return;
 
-        // AudioPlayer.addSamples(message.samples);
-
-        // Decide when to start actual playback:
-        // You can use your model's timing hints OR buffered audio amount (or both).
-        //
-        // - message.tRuntime and message.tPlayAudio are your model's notion of
-        //   "runtime" and "when audio should start".
-        // - AudioPlayer.getBufferedSeconds() is real buffered audio in the worklet.
-        //
         const onProgressCallback = SpeechClient.getOnProgressCallback();
-        SpeechClient.player!.enqueue(message.samples, 22050, () => {
+        player.enqueue(message.samples, 22050, () => {
           if (!onProgressCallback) return;
 
           onProgressCallback({
             progress: message.progress,
-            isPlaying: SpeechClient.player?.isPlaying ?? false,
+            isPlaying: player.isPlaying,
             textHighlightStart: message.highlightStart,
             textHighlightEnd: message.highlightEnd,
             text: message.text,
@@ -52,9 +49,9 @@ export class WorkerClient {
         if (shouldStart) {
           // Open the gate so scheduling begins *but only if the user hasn't paused*.
           // (If the user never pressed Play, this will just buffer until they do.)
-          SpeechClient.player!.setStartGateOpen(true);
+          player.setStartGateOpen(true);
         }
-        if (shouldStart && !SpeechClient.player!.isPausedByUser) void SpeechClient.player!.play();
+        if (shouldStart && !player.isPausedByUser) void player.play();
 
         // // const state = AudioPlayer.getState();
         // console.log(`Audio player state ${state}`);

@@ -130,6 +130,7 @@ export class AudioPlayer {
 
   // Gate: when false, we do NOT schedule any audio (useful for your tRuntime/tPlayAudio logic)
   private startGateOpen: boolean;
+  private locked = false;
 
   constructor(opts: AudioPlayerOptions = {}) {
     this.inputSampleRate = opts.inputSampleRate ?? 22050;
@@ -160,7 +161,7 @@ export class AudioPlayer {
 
   /** True only when user wants play AND the context is running AND the gate is open. */
   get isPlaying(): boolean {
-    return this.playRequested && this.startGateOpen && this.ctx.state === "running";
+    return !this.locked && this.playRequested && this.startGateOpen && this.ctx.state === "running";
   }
 
   /** True if the user has paused (so your code can avoid auto-starting). */
@@ -172,11 +173,16 @@ export class AudioPlayer {
     return this.startGateOpen;
   }
 
+  get isLocked(): boolean {
+    return this.locked;
+  }
+
   /**
    * If user pressed Play but gate is closed (waiting for shouldStart),
    * state is "waiting" instead of "playing".
    */
-  get state(): "paused" | "waiting" | "playing" {
+  get state(): "paused" | "waiting" | "playing" | "locked" {
+    if (this.locked) return "locked";
     if (!this.playRequested) return "paused";
     return this.startGateOpen ? "playing" : "waiting";
   }
@@ -248,6 +254,7 @@ export class AudioPlayer {
    */
   async play(): Promise<void> {
     if (this.disposed) throw new Error("AudioPlayer is disposed");
+    if (this.locked) return;
 
     this.playRequested = true;
     this.pausedByUserExplicitly = false;
@@ -265,6 +272,19 @@ export class AudioPlayer {
     this.gain.gain.linearRampToValueAtTime(1, t + this.rampSec);
 
     await this.ctx.resume();
+    this.notifyActiveChunkStateChanged();
+  }
+
+  async lock(): Promise<void> {
+    if (this.disposed) return;
+    this.locked = true;
+    this.notifyActiveChunkStateChanged();
+  }
+
+  unlock(): void {
+    if (this.disposed) return;
+    if (!this.locked) return;
+    this.locked = false;
     this.notifyActiveChunkStateChanged();
   }
 
@@ -296,6 +316,28 @@ export class AudioPlayer {
     holdAudioParamAtTime(this.gain.gain, this.ctx.currentTime);
     this.gain.gain.setValueAtTime(0, this.ctx.currentTime);
     await this.ctx.suspend();
+    this.stopSilentMediaKeepalive();
+  }
+
+  /**
+   * Prepare player state for a brand-new generation.
+   * Stops audible playback, drops queued/scheduled audio, and clears any prior user-pause latch
+   * so a new generation can auto-play when ready.
+   */
+  async resetForNewGeneration(): Promise<void> {
+    if (this.disposed) return;
+
+    this.playRequested = false;
+    this.pausedByUserExplicitly = false;
+    this.setStartGateOpen(false);
+    this.clear();
+
+    if (this.ctx.state === "running") {
+      const t = this.ctx.currentTime;
+      holdAudioParamAtTime(this.gain.gain, t);
+      this.gain.gain.setValueAtTime(0, t);
+      await this.ctx.suspend();
+    }
     this.stopSilentMediaKeepalive();
   }
 
@@ -349,7 +391,7 @@ export class AudioPlayer {
     // Do not schedule unless:
     // - user wants play, and
     // - start gate is open
-    if (!this.playRequested || !this.startGateOpen) return;
+    if (this.locked || !this.playRequested || !this.startGateOpen) return;
 
     const now = this.ctx.currentTime;
 

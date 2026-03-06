@@ -30,29 +30,41 @@ export class SpeechClient {
   }
 
   static async generate(options: SpeechGenerateOptions): Promise<void> {
-    // AudioPlayer.clear();
-    if (this.status === "generating") {
-      this.status = "terminating-generate";
-      await WorkerClient.postMessage({ type: "speech-terminate-early" });
-    } else if (this.status === "terminating-generate") {
+    if (this.status === "terminating-generate") {
       console.warn(
         `Received multiple SpeechClient.generate(...) calls in rapid succession. Ignoring most recent generate call with input text "${options.text.length > 100 ? options.text.slice(0, 100) + "..." : options.text}".`,
       );
       return;
     }
 
-    this.status = "generating";
-    this.onProgressCallback = options.onProgressCallback ?? null;
+    const wasGenerating = this.status === "generating";
 
-    const { onProgressCallback, ...workerOptions } = options;
+    await this.player?.lock();
+    try {
+      await this.player?.resetForNewGeneration();
 
-    await WorkerClient.postMessage({
-      type: "speech-generate",
-      options: workerOptions,
-    });
-    // console.log("SPEECH GENERATION COMPLETE");
-    this.onProgressCallback = null;
-    this.status = "idle";
+      if (wasGenerating) {
+        this.status = "terminating-generate";
+        console.warn("TRYING TO TERMINATE EARLY");
+        await WorkerClient.postMessage({ type: "speech-terminate-early" });
+      }
+
+      this.status = "generating";
+      this.onProgressCallback = options.onProgressCallback ?? null;
+
+      const { onProgressCallback, ...workerOptions } = options;
+
+      this.player?.unlock();
+      await WorkerClient.postMessage({
+        type: "speech-generate",
+        options: workerOptions,
+      });
+      // console.log("SPEECH GENERATION COMPLETE");
+      this.onProgressCallback = null;
+      this.status = "idle";
+    } finally {
+      this.player?.unlock();
+    }
   }
 
   static async play(): Promise<void> {

@@ -1,5 +1,8 @@
 dist/
 data/
+sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/
+assets/
+src/wasm/sherpa-onnx-wasm-main-tts.js
 
 node_modules/
 .node_modules/

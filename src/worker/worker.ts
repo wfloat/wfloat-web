@@ -21,13 +21,17 @@ let TTS: OfflineTts | null = null;
 // let DO_EARLY_STOP: Boolean = false;
 let EARLY_STOP_MESSAGE_ID: number | null = null;
 
+const REGISTRY_URL = "http://localhost:8000/assets"; // https://registry.wfloat.com
+
 const defaultModuleConfig: ModuleConfig = {
   locateFile: (path: string) => {
-    if (path.endsWith(".wasm")) return "/assets/sherpa-onnx-wasm-main-tts.wasm";
-    if (path.endsWith(".data")) return "/assets/sherpa-onnx-wasm-main-tts.data";
+    if (path.endsWith(".wasm"))
+      return `${REGISTRY_URL}/sherpa-onnx-wasm-simd-tts/1.13.0/sherpa-onnx-wasm-main-tts.wasm`;
+    if (path.endsWith(".data"))
+      return `${REGISTRY_URL}/sherpa-onnx-wasm-simd-tts/1.13.0/sherpa-onnx-wasm-main-tts.data`;
     return path;
   },
-  print: (text: string) => {}, //console.log(text),
+  print: (text: string) => console.log(text),
   printErr: (text: string) => console.error("wasm:", text),
   onAbort: (what: unknown) => console.error("wasm abort:", what),
 };
@@ -46,8 +50,8 @@ function postResponse(message: WorkerResponse, transfer: Transferable[] = []): v
 }
 
 async function handleLoadSpeechModel(id: number, modelId: string): Promise<void> {
-  const MODEL_NAME = "wumbospeech0_medium_epoch_332.onnx";
-  const TOKENS_NAME = "wumbospeech0_medium_epoch_332_tokens.txt";
+  const MODEL_NAME = "wfloat-model-1.0.0.onnx";
+  const TOKENS_NAME = "wfloat-model-1.0.0_tokens.txt";
 
   if (TTS) {
     TTS.free();
@@ -55,14 +59,14 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
   }
   const sherpaModule = await getSherpaModule();
 
-  const tokensResponse = await fetch(`/assets/${TOKENS_NAME}`);
+  const tokensResponse = await fetch(`${REGISTRY_URL}/models/wfloat-model/1.0.0/${TOKENS_NAME}`);
   if (!tokensResponse.ok) {
     throw new Error("Failed to fetch tokens.txt");
   }
   const tokensText = await tokensResponse.text();
   sherpaModule.FS.writeFile(`/${TOKENS_NAME}`, tokensText);
 
-  const response = await fetch(`/assets/${MODEL_NAME}`);
+  const response = await fetch(`${REGISTRY_URL}/models/wfloat-model/1.0.0/${MODEL_NAME}`);
   if (!response.ok || !response.body) {
     throw new Error("Failed to fetch model.onnx");
   }
