@@ -31,6 +31,7 @@ export type SpeechGenerateOptions = {
   speed?: number;
   silencePaddingSec?: number;
   onProgressCallback?: (event: SpeechOnProgressEvent) => void;
+  onFinishedPlayingCallback?: () => void;
 };
 
 export const VALID_EMOTIONS: SpeechEmotion[] = [

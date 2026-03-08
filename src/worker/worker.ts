@@ -9,7 +9,8 @@ import { SPEAKER_IDS, SpeechEmotion, VALID_EMOTIONS, VALID_SIDS } from "../speec
 // @ts-ignore
 import createSherpaModule from "../wasm/sherpa-onnx-wasm-main-tts.js";
 import {
-  SpeechGenerateWorkerOptions as SpeechGenerateWorkerOptions,
+  ModelAssetsResponse,
+  SpeechGenerateWorkerOptions,
   WorkerRequest,
   WorkerResponse,
 } from "./workerTypes.js";
@@ -21,14 +22,19 @@ let TTS: OfflineTts | null = null;
 // let DO_EARLY_STOP: Boolean = false;
 let EARLY_STOP_MESSAGE_ID: number | null = null;
 
-const REGISTRY_URL = "http://localhost:8000/assets"; // https://registry.wfloat.com
+let MODEL_ASSET_URLS: ModelAssetsResponse | null = null;
+// const REGISTRY_URL = "http://192.168.1.239:8000/assets"; // "http://localhost:8000/assets";
+// MODEL_ASSET_URLS = {
+//   model_onnx: "",
+//   model_tokens: "",
+//   wasm_binary: `${REGISTRY_URL}/sherpa-onnx-wasm-simd-tts/1.13.0/sherpa-onnx-wasm-main-tts.wasm`,
+//   wasm_data: `${REGISTRY_URL}/sherpa-onnx-wasm-simd-tts/1.13.0/sherpa-onnx-wasm-main-tts.data`,
+// };
 
 const defaultModuleConfig: ModuleConfig = {
   locateFile: (path: string) => {
-    if (path.endsWith(".wasm"))
-      return `${REGISTRY_URL}/sherpa-onnx-wasm-simd-tts/1.13.0/sherpa-onnx-wasm-main-tts.wasm`;
-    if (path.endsWith(".data"))
-      return `${REGISTRY_URL}/sherpa-onnx-wasm-simd-tts/1.13.0/sherpa-onnx-wasm-main-tts.data`;
+    if (path.endsWith(".wasm")) return MODEL_ASSET_URLS!.wasm_binary;
+    if (path.endsWith(".data")) return MODEL_ASSET_URLS!.wasm_data;
     return path;
   },
   print: (text: string) => console.log(text),
@@ -36,7 +42,34 @@ const defaultModuleConfig: ModuleConfig = {
   onAbort: (what: unknown) => console.error("wasm abort:", what),
 };
 
-export function getSherpaModule() {
+async function getModelAssets(
+  modelId: string,
+  platform: string,
+  version: string,
+): Promise<ModelAssetsResponse> {
+  const params = new URLSearchParams({
+    model_id: modelId,
+    platform,
+    version,
+  });
+
+  const HOST = "https://wfloat.com"; // "http://localhost:4000";
+  const response = await fetch(`${HOST}/api/model-assets?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  const data: ModelAssetsResponse = await response.json();
+  return data;
+}
+
+async function getSherpaModule() {
   if (!SherpaModuleInstancePromise) {
     SherpaModuleInstancePromise = createSherpaModule(defaultModuleConfig);
   }
@@ -50,8 +83,11 @@ function postResponse(message: WorkerResponse, transfer: Transferable[] = []): v
 }
 
 async function handleLoadSpeechModel(id: number, modelId: string): Promise<void> {
-  const MODEL_NAME = "wfloat-model-1.0.0.onnx";
-  const TOKENS_NAME = "wfloat-model-1.0.0_tokens.txt";
+  const PLATFORM = "web";
+  const VERSION = "1.0.0";
+  MODEL_ASSET_URLS = await getModelAssets(modelId, PLATFORM, VERSION);
+  const MODEL_NAME = new URL(MODEL_ASSET_URLS!.model_onnx).pathname.split("/").pop();
+  const TOKENS_NAME = new URL(MODEL_ASSET_URLS!.model_tokens).pathname.split("/").pop();
 
   if (TTS) {
     TTS.free();
@@ -59,14 +95,14 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
   }
   const sherpaModule = await getSherpaModule();
 
-  const tokensResponse = await fetch(`${REGISTRY_URL}/models/wfloat-model/1.0.0/${TOKENS_NAME}`);
+  const tokensResponse = await fetch(MODEL_ASSET_URLS.model_tokens);
   if (!tokensResponse.ok) {
     throw new Error("Failed to fetch tokens.txt");
   }
   const tokensText = await tokensResponse.text();
   sherpaModule.FS.writeFile(`/${TOKENS_NAME}`, tokensText);
 
-  const response = await fetch(`${REGISTRY_URL}/models/wfloat-model/1.0.0/${MODEL_NAME}`);
+  const response = await fetch(MODEL_ASSET_URLS.model_onnx);
   if (!response.ok || !response.body) {
     throw new Error("Failed to fetch model.onnx");
   }
@@ -184,6 +220,7 @@ async function handleSpeechGenerate(
 
   let tRuntime = 0;
   const tStart = performance.now();
+  let rawTextCursor = 0;
 
   for (let i = 0; i < preparedInput.textClean.length; i++) {
     const tStartChunk = performance.now();
@@ -223,6 +260,10 @@ async function handleSpeechGenerate(
     audioSecPerPhoneme *= preventOverrunConstant;
     const tPlayAudio =
       computeStartTime(preparedInput.textPhonemes, phonemesPerSec, audioSecPerPhoneme) * 1000;
+    const rawChunkText = preparedInput.text[i] ?? "";
+    const highlightStart = rawTextCursor;
+    const highlightEnd = rawTextCursor + rawChunkText.length;
+    rawTextCursor = highlightEnd;
 
     postResponse(
       {
@@ -234,9 +275,9 @@ async function handleSpeechGenerate(
         progress,
         tPlayAudio: tPlayAudio!,
         tRuntime: tRuntime,
-        highlightStart: 0,
-        highlightEnd: 1,
-        text: preparedInput.text[i],
+        highlightStart,
+        highlightEnd,
+        text: rawChunkText,
       },
       // [result.samples.buffer],
     );

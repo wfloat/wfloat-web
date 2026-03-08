@@ -27,3 +27,16 @@ export type WorkerResponse =
   | { id: number; type: "speech-terminate-early-done" };
 
 export type SpeechGenerateWorkerOptions = Omit<SpeechGenerateOptions, "onProgressCallback">;
+
+export type GetModelAssetsArgs = {
+  modelId: string;
+  platform: string;
+  version: string;
+};
+
+export type ModelAssetsResponse = {
+  model_onnx: string;
+  model_tokens: string;
+  wasm_binary: string;
+  wasm_data: string;
+};

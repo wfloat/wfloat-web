@@ -116,6 +116,9 @@ export class AudioPlayer {
   private scheduled = new Set<AudioBufferSourceNode>();
   private pendingChunkStartCallbacks: Array<{ startTime: number; callback: () => void }> = [];
   private activeChunkStartCallback: (() => void) | null = null;
+  private onFinishedPlayingCallback: (() => void) | null = null;
+  private hasUnfinishedAudioInternal = false;
+  private generationComplete = false;
 
   // Next scheduled start time in AudioContext time
   private nextTime = 0;
@@ -177,6 +180,10 @@ export class AudioPlayer {
     return this.locked;
   }
 
+  get hasUnfinishedAudio(): boolean {
+    return this.hasUnfinishedAudioInternal;
+  }
+
   /**
    * If user pressed Play but gate is closed (waiting for shouldStart),
    * state is "waiting" instead of "playing".
@@ -210,6 +217,7 @@ export class AudioPlayer {
 
     this.queue.push({ buffer: buf, onStart });
     this.queuedSec += buf.duration;
+    this.hasUnfinishedAudioInternal = true;
   }
 
   /** Enqueue a silent chunk for the given duration in seconds. */
@@ -338,6 +346,8 @@ export class AudioPlayer {
 
     this.playRequested = false;
     this.pausedByUserExplicitly = false;
+    this.generationComplete = false;
+    this.onFinishedPlayingCallback = null;
     this.setStartGateOpen(false);
     this.clear();
 
@@ -370,8 +380,18 @@ export class AudioPlayer {
     this.queuedSec = 0;
     this.pendingChunkStartCallbacks.length = 0;
     this.activeChunkStartCallback = null;
+    this.hasUnfinishedAudioInternal = false;
 
     this.nextTime = this.ctx.currentTime + this.safetySec;
+  }
+
+  setOnFinishedPlayingCallback(callback: (() => void) | null): void {
+    this.onFinishedPlayingCallback = callback;
+  }
+
+  markGenerationComplete(): void {
+    this.generationComplete = true;
+    this.maybeEmitFinishedPlaying();
   }
 
   async dispose(): Promise<void> {
@@ -426,7 +446,10 @@ export class AudioPlayer {
     src.connect(this.gain);
 
     this.scheduled.add(src);
-    src.onended = () => this.scheduled.delete(src);
+    src.onended = () => {
+      this.scheduled.delete(src);
+      this.maybeEmitFinishedPlaying();
+    };
 
     const startTime = this.nextTime;
     src.start(startTime);
@@ -454,6 +477,16 @@ export class AudioPlayer {
 
   private notifyActiveChunkStateChanged(): void {
     this.activeChunkStartCallback?.();
+  }
+
+  private maybeEmitFinishedPlaying(): void {
+    if (!this.generationComplete) return;
+    if (this.queue.length > 0 || this.scheduled.size > 0) return;
+    this.hasUnfinishedAudioInternal = false;
+    const callback = this.onFinishedPlayingCallback;
+    this.onFinishedPlayingCallback = null;
+    this.generationComplete = false;
+    callback?.();
   }
 
   private createSilentMediaElement(): HTMLAudioElement {

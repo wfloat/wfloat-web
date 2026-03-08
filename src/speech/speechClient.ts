@@ -51,8 +51,9 @@ export class SpeechClient {
 
       this.status = "generating";
       this.onProgressCallback = options.onProgressCallback ?? null;
+      this.player?.setOnFinishedPlayingCallback(options.onFinishedPlayingCallback ?? null);
 
-      const { onProgressCallback, ...workerOptions } = options;
+      const { onProgressCallback, onFinishedPlayingCallback, ...workerOptions } = options;
 
       this.player?.unlock();
       await WorkerClient.postMessage({
@@ -60,6 +61,7 @@ export class SpeechClient {
         options: workerOptions,
       });
       // console.log("SPEECH GENERATION COMPLETE");
+      this.player?.markGenerationComplete();
       this.onProgressCallback = null;
       this.status = "idle";
     } finally {
