@@ -37,7 +37,7 @@ const defaultModuleConfig: ModuleConfig = {
     if (path.endsWith(".data")) return MODEL_ASSET_URLS!.wasm_data;
     return path;
   },
-  print: (text: string) => console.log(text),
+  print: (text: string) => {}, //console.log(text),
   printErr: (text: string) => console.error("wasm:", text),
   onAbort: (what: unknown) => console.error("wasm abort:", what),
 };
@@ -84,7 +84,7 @@ function postResponse(message: WorkerResponse, transfer: Transferable[] = []): v
 
 async function handleLoadSpeechModel(id: number, modelId: string): Promise<void> {
   const PLATFORM = "web";
-  const VERSION = "1.0.0";
+  const VERSION = "1.1.6";
   MODEL_ASSET_URLS = await getModelAssets(modelId, PLATFORM, VERSION);
   const MODEL_NAME = new URL(MODEL_ASSET_URLS!.model_onnx).pathname.split("/").pop();
   const TOKENS_NAME = new URL(MODEL_ASSET_URLS!.model_tokens).pathname.split("/").pop();
@@ -224,23 +224,12 @@ async function handleSpeechGenerate(
 
   for (let i = 0; i < preparedInput.textClean.length; i++) {
     const tStartChunk = performance.now();
-    await sleep(10);
-
     const textClean = preparedInput.textClean[i];
 
     // if (id !== CURRENT_GENERATE_ID) {
     //   postResponse({ id, type: "speech-terminate-early-done" });
     //   return;
     // }
-
-    if (EARLY_STOP_MESSAGE_ID) {
-      const earlyStopId = EARLY_STOP_MESSAGE_ID;
-      EARLY_STOP_MESSAGE_ID = null;
-      postResponse({ id, type: "speech-generate-done" });
-      postResponse({ id: earlyStopId, type: "speech-terminate-early-done" });
-      return;
-    }
-
     const result = TTS.generate({
       text: preparedInput.textClean[i],
       sid,
@@ -264,6 +253,19 @@ async function handleSpeechGenerate(
     const highlightStart = rawTextCursor;
     const highlightEnd = rawTextCursor + rawChunkText.length;
     rawTextCursor = highlightEnd;
+
+    await sleep(10);
+
+    if (EARLY_STOP_MESSAGE_ID) {
+      const earlyStopId = EARLY_STOP_MESSAGE_ID;
+      EARLY_STOP_MESSAGE_ID = null;
+      postResponse({ id, type: "speech-generate-done" });
+      console.log("called speech-generate-done EARLY");
+      postResponse({ id: earlyStopId, type: "speech-terminate-early-done" });
+      return;
+    }
+
+    console.log(`📢TPLAYAUDIO: ${tPlayAudio}`);
 
     postResponse(
       {

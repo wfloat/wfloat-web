@@ -292,6 +292,25 @@ export class AudioPlayer {
     this.notifyActiveChunkStateChanged();
   }
 
+  /**
+   * Best-effort user-gesture priming for strict mobile autoplay policies.
+   * Call this synchronously at the beginning of a click/tap-initiated flow
+   * before any awaited work (for example at the top of generate()).
+   */
+  primeForUserGesture(): void {
+    if (this.disposed) return;
+
+    this.configurePlaybackAudioSession();
+
+    void this.startSilentMediaKeepalive();
+
+    if (this.ctx.state !== "running") {
+      void this.ctx.resume().catch((error) => {
+        console.warn("AudioPlayer user-gesture prime resume() failed:", error);
+      });
+    }
+  }
+
   async lock(): Promise<void> {
     if (this.disposed) return;
     this.locked = true;
@@ -532,7 +551,8 @@ export class AudioPlayer {
       if (!this.silentMediaEl.paused) return;
       this.silentMediaEl.currentTime = 0;
       await this.silentMediaEl.play();
-    } catch {
+    } catch (error) {
+      console.warn("AudioPlayer silent media keepalive play() failed:", error);
       // Best-effort iOS workaround. AudioContext resume() is still the primary path.
     }
   }

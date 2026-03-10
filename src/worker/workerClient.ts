@@ -10,7 +10,10 @@ export class WorkerClient {
   private static id: number = 1;
   private static worker = new Worker(URL.createObjectURL(blob), { type: "module" });
   private static initialized = false;
-  private static pending = new Map<number, { resolve: (value: unknown) => void; reject: (err: Error) => void }>();
+  private static pending = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (err: Error) => void }
+  >();
 
   private static init(): void {
     if (this.initialized) return;

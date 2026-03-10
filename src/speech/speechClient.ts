@@ -39,6 +39,7 @@ export class SpeechClient {
 
     const wasGenerating = this.status === "generating";
 
+    this.player?.primeForUserGesture();
     await this.player?.lock();
     try {
       await this.player?.resetForNewGeneration();
