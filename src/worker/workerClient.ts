@@ -49,7 +49,10 @@ export class WorkerClient {
         if (message.progress < 1 && message.silencePaddingSec > 0) {
           player.enqueueSilence(message.silencePaddingSec, CHUNK_SAMPLE_RATE);
         }
-        const shouldStart = message.tRuntime >= message.tPlayAudio;
+        // The timing heuristic is only useful while more audio may still arrive.
+        // For the final chunk, leaving the gate closed can deadlock playback:
+        // the chunk stays buffered, nothing schedules, and finished never fires.
+        const shouldStart = message.progress >= 1 || message.tRuntime >= message.tPlayAudio;
         if (shouldStart) {
           // Open the gate so scheduling begins *but only if the user hasn't paused*.
           // (If the user never pressed Play, this will just buffer until they do.)
