@@ -279,11 +279,18 @@ export class AudioPlayer {
     this.configurePlaybackAudioSession();
     await this.startSilentMediaKeepalive();
 
+    const t = this.ctx.currentTime;
+
     // If already running, nothing else needed.
-    if (this.ctx.state === "running") return;
+    if (this.ctx.state === "running") {
+      holdAudioParamAtTime(this.gain.gain, t);
+      this.gain.gain.setValueAtTime(this.gain.gain.value, t);
+      this.gain.gain.linearRampToValueAtTime(1, t + this.rampSec);
+      this.notifyActiveChunkStateChanged();
+      return;
+    }
 
     // Fade-in (when we actually resume)
-    const t = this.ctx.currentTime;
     holdAudioParamAtTime(this.gain.gain, t);
     this.gain.gain.setValueAtTime(0, t);
     this.gain.gain.linearRampToValueAtTime(1, t + this.rampSec);
@@ -357,26 +364,18 @@ export class AudioPlayer {
 
   /**
    * Prepare player state for a brand-new generation.
-   * Stops audible playback, drops queued/scheduled audio, and clears any prior user-pause latch
-   * so a new generation can auto-play when ready.
+   * Drops queued/scheduled audio, clears any prior user-pause latch, and leaves the player in a
+   * waiting-to-autoplay state so the next generation can become audible as soon as the start gate opens.
    */
   async resetForNewGeneration(): Promise<void> {
     if (this.disposed) return;
 
-    this.playRequested = false;
+    this.playRequested = true;
     this.pausedByUserExplicitly = false;
     this.generationComplete = false;
     this.onFinishedPlayingCallback = null;
     this.setStartGateOpen(false);
     this.clear();
-
-    if (this.ctx.state === "running") {
-      const t = this.ctx.currentTime;
-      holdAudioParamAtTime(this.gain.gain, t);
-      this.gain.gain.setValueAtTime(0, t);
-      await this.ctx.suspend();
-    }
-    this.stopSilentMediaKeepalive();
   }
 
   /**

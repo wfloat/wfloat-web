@@ -84,7 +84,7 @@ function postResponse(message: WorkerResponse, transfer: Transferable[] = []): v
 
 async function handleLoadSpeechModel(id: number, modelId: string): Promise<void> {
   const PLATFORM = "web";
-  const VERSION = "1.1.7";
+  const VERSION = "1.1.8";
   MODEL_ASSET_URLS = await getModelAssets(modelId, PLATFORM, VERSION);
   const MODEL_NAME = new URL(MODEL_ASSET_URLS!.model_onnx).pathname.split("/").pop();
   const TOKENS_NAME = new URL(MODEL_ASSET_URLS!.model_tokens).pathname.split("/").pop();
