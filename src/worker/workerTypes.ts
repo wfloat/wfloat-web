@@ -1,4 +1,4 @@
-import { SpeechGenerateOptions } from "../speech/speechTypes";
+import { LoadModelOnProgressEvent, SpeechGenerateOptions } from "../speech/speechTypes";
 
 export type WorkerRequestTemplate =
   | { type: "speech-load-model"; modelId: string }
@@ -9,6 +9,7 @@ export type WorkerRequest = WorkerRequestTemplate & { id: number };
 
 export type WorkerResponse =
   | { id: number; type: "speech-load-model-done"; sampleRate: number }
+  | { id: number; type: "speech-load-model-progress"; event: LoadModelOnProgressEvent }
   | { id: number; type: "speech-generate-done" }
   | { id: number; type: "request-error"; error: string }
   | {

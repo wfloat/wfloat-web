@@ -23,6 +23,16 @@ export type SpeechOnProgressEvent = {
   text: string;
 };
 
+export type LoadModelOnProgressEvent =
+  | {
+      status: "downloading";
+      progress: number;
+    }
+  | {
+      status: "loading";
+    }
+  | { status: "completed" };
+
 export type SpeechGenerateOptions = {
   voiceId?: string | number;
   text: string;
@@ -32,6 +42,10 @@ export type SpeechGenerateOptions = {
   silencePaddingSec?: number;
   onProgressCallback?: (event: SpeechOnProgressEvent) => void;
   onFinishedPlayingCallback?: () => void;
+};
+
+export type LoadModelOptions = {
+  onProgressCallback?: (event: LoadModelOnProgressEvent) => void;
 };
 
 export const VALID_EMOTIONS: SpeechEmotion[] = [

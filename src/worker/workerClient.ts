@@ -22,6 +22,19 @@ export class WorkerClient {
     this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const message = event.data;
 
+      if (message.type === "speech-load-model-progress") {
+        const pendingRequest = this.pending.get(message.id);
+        if (!pendingRequest) {
+          console.warn(
+            `Ignoring 'speech-load-model-progress' response received from the web worker with id: '${message.id}' but there is no speech-load-model message in the queue with this id.`,
+          );
+          return;
+        }
+
+        SpeechClient.getLoadModelOnProgressCallback()?.(message.event);
+        return;
+      }
+
       if (message.type === "speech-generate-chunk") {
         const pendingRequest = this.pending.get(message.id);
         if (!pendingRequest) {

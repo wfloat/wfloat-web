@@ -93,7 +93,79 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
     TTS.free();
     TTS = null;
   }
-  const sherpaModule = await getSherpaModule();
+
+  let isSherpaModuleResolved = false;
+  const sherpaModulePromise = getSherpaModule().then((module) => {
+    isSherpaModuleResolved = true;
+    return module;
+  });
+
+  const response = await fetch(MODEL_ASSET_URLS.model_onnx);
+  if (!response.ok || !response.body) {
+    throw new Error("Failed to fetch model.onnx");
+  }
+  const reader = response.body.getReader();
+  const totalBytesHeader = response.headers.get("content-length");
+  const totalBytes = totalBytesHeader ? Number.parseInt(totalBytesHeader, 10) : NaN;
+  const canReportDownloadProgress = Number.isFinite(totalBytes) && totalBytes > 0;
+  let downloadedBytes = 0;
+  let pendingModelChunks: Uint8Array[] = [];
+  let modelFileStream: ReturnType<SherpaModule["FS"]["open"]> | null = null;
+  let modelWritePosition = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (isSherpaModuleResolved || done) {
+        const sherpaModule = await sherpaModulePromise;
+        if (!modelFileStream) {
+          modelFileStream = sherpaModule.FS.open(`/${MODEL_NAME}`, "w+");
+        }
+        for (const chunk of pendingModelChunks) {
+          sherpaModule.FS.write(modelFileStream, chunk, 0, chunk.length, modelWritePosition);
+          modelWritePosition += chunk.length;
+        }
+        if (value) {
+          sherpaModule.FS.write(modelFileStream, value, 0, value.length, modelWritePosition);
+          modelWritePosition += value.length;
+        }
+
+        pendingModelChunks = [];
+        if (done) break;
+      } else if (value) {
+        pendingModelChunks.push(value);
+      }
+      if (!value) continue;
+
+      if (canReportDownloadProgress) {
+        downloadedBytes += value.length;
+        postResponse({
+          id,
+          type: "speech-load-model-progress",
+          event: {
+            status: "downloading",
+            progress: Math.min(downloadedBytes / totalBytes, 1),
+          },
+        });
+      }
+    }
+  } finally {
+    reader.releaseLock();
+    if (modelFileStream) {
+      const sherpaModule = await sherpaModulePromise;
+      sherpaModule.FS.close(modelFileStream);
+    }
+  }
+
+  const sherpaModule = await sherpaModulePromise;
+  // if (pendingModelChunks.length) {
+  //   const modelFileStream = sherpaModule.FS.open(`/${MODEL_NAME}`, "w+");
+  //   for (const chunk of pendingModelChunks) {
+  //     sherpaModule.FS.write(modelFileStream, chunk, 0, chunk.length);
+  //   }
+  //   sherpaModule.FS.close(modelFileStream);
+  // }
+  // pendingModelChunks = [];
 
   const tokensResponse = await fetch(MODEL_ASSET_URLS.model_tokens);
   if (!tokensResponse.ok) {
@@ -102,18 +174,13 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
   const tokensText = await tokensResponse.text();
   sherpaModule.FS.writeFile(`/${TOKENS_NAME}`, tokensText);
 
-  const response = await fetch(MODEL_ASSET_URLS.model_onnx);
-  if (!response.ok || !response.body) {
-    throw new Error("Failed to fetch model.onnx");
-  }
-  const reader = response.body.getReader();
-  const stream = sherpaModule.FS.open(`/${MODEL_NAME}`, "w+");
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    sherpaModule.FS.write(stream, value, 0, value.length);
-  }
-  sherpaModule.FS.close(stream);
+  console.log(sherpaModule.FS.readdir("/"));
+
+  postResponse({
+    id,
+    type: "speech-load-model-progress",
+    event: { status: "loading" },
+  });
 
   TTS = createOfflineTts(sherpaModule, {
     offlineTtsModelConfig: {
@@ -133,6 +200,8 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
     ruleFars: "",
     maxNumSentences: 1,
   });
+
+  console.log(TTS);
 
   postResponse({ id, type: "speech-load-model-done", sampleRate: TTS.sampleRate });
 }
@@ -218,6 +287,8 @@ async function handleSpeechGenerate(
     TTS.handle,
   );
 
+  // console.log("preparedInput", preparedInput);
+
   let tRuntime = 0;
   const tStart = performance.now();
   let rawTextCursor = 0;
@@ -265,7 +336,7 @@ async function handleSpeechGenerate(
       return;
     }
 
-    console.log(`📢TPLAYAUDIO: ${tPlayAudio}`);
+    // console.log(`📢TPLAYAUDIO: ${tPlayAudio}`);
 
     postResponse(
       {

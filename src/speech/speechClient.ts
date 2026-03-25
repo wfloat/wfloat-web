@@ -1,31 +1,47 @@
 import { AudioPlayer } from "./audioPlayer.js";
-import { SpeechClientStatus, SpeechGenerateOptions, SpeechOnProgressEvent } from "./speechTypes.js";
+import {
+  LoadModelOnProgressEvent,
+  LoadModelOptions,
+  SpeechClientStatus,
+  SpeechGenerateOptions,
+  SpeechOnProgressEvent,
+} from "./speechTypes.js";
 import { WorkerClient } from "../worker/workerClient.js";
 
 export class SpeechClient {
   private static status: SpeechClientStatus = "off";
   public static player: AudioPlayer | null = null;
-  private static onProgressCallback: ((event: SpeechOnProgressEvent) => void) | null = null;
+  private static loadModelOnProgressCallback:
+    | ((event: LoadModelOnProgressEvent) => void)
+    | null = null;
+  private static generateOnProgressCallback: ((event: SpeechOnProgressEvent) => void) | null = null;
 
-  static async loadModel(modelId: string): Promise<void> {
+  static async loadModel(modelId: string, options: LoadModelOptions = {}): Promise<void> {
     if (this.status === "loading-model") {
       console.warn(
         `Received multiple SpeechClient.loadModel(...) calls in rapid succession. Ignoring most recent loadModel call with modelId "${modelId}".`,
       );
     } else {
       this.status = "loading-model";
-      // console.log("Starting speech model load");
-      await WorkerClient.postMessage({
-        type: "speech-load-model",
-        modelId,
-      });
-      this.player = new AudioPlayer({
-        inputSampleRate: 22050,
-        scheduleAheadSec: 0.5,
-        tickMs: 50,
-      });
-      // console.log("Speech model loaded complete!");
-      this.status = "idle";
+      this.loadModelOnProgressCallback = options.onProgressCallback ?? null;
+      try {
+        await WorkerClient.postMessage({
+          type: "speech-load-model",
+          modelId,
+        });
+        this.player = new AudioPlayer({
+          inputSampleRate: 22050,
+          scheduleAheadSec: 0.5,
+          tickMs: 50,
+        });
+        this.loadModelOnProgressCallback?.({ status: "completed" });
+        this.status = "idle";
+      } catch (error) {
+        this.status = "off";
+        throw error;
+      } finally {
+        this.loadModelOnProgressCallback = null;
+      }
     }
   }
 
@@ -51,7 +67,7 @@ export class SpeechClient {
       }
 
       this.status = "generating";
-      this.onProgressCallback = options.onProgressCallback ?? null;
+      this.generateOnProgressCallback = options.onProgressCallback ?? null;
       this.player?.setOnFinishedPlayingCallback(options.onFinishedPlayingCallback ?? null);
 
       const { onProgressCallback, onFinishedPlayingCallback, ...workerOptions } = options;
@@ -63,7 +79,7 @@ export class SpeechClient {
       });
       // console.log("SPEECH GENERATION COMPLETE");
       this.player?.markGenerationComplete();
-      this.onProgressCallback = null;
+      this.generateOnProgressCallback = null;
       this.status = "idle";
     } finally {
       this.player?.unlock();
@@ -95,7 +111,11 @@ export class SpeechClient {
   }
 
   static getOnProgressCallback(): ((event: SpeechOnProgressEvent) => void) | null {
-    return this.onProgressCallback;
+    return this.generateOnProgressCallback;
+  }
+
+  static getLoadModelOnProgressCallback(): ((event: LoadModelOnProgressEvent) => void) | null {
+    return this.loadModelOnProgressCallback;
   }
 
   // static async free(): Promise<void> {
