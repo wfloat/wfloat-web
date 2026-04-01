@@ -71,7 +71,10 @@ export class WorkerClient {
           // (If the user never pressed Play, this will just buffer until they do.)
           player.setStartGateOpen(true);
         }
-        if (shouldStart && !player.isPausedByUser) void player.play();
+        if (shouldStart && !player.isPausedByUser) {
+          console.log("calling play");
+          void player.play();
+        }
 
         // // const state = AudioPlayer.getState();
         // console.log(`Audio player state ${state}`);

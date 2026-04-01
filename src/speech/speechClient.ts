@@ -4,6 +4,7 @@ import {
   LoadModelOptions,
   SpeechClientStatus,
   SpeechGenerateOptions,
+  SpeechGenerateDialogueOptions,
   SpeechOnProgressEvent,
 } from "./speechTypes.js";
 import { WorkerClient } from "../worker/workerClient.js";
@@ -11,9 +12,8 @@ import { WorkerClient } from "../worker/workerClient.js";
 export class SpeechClient {
   private static status: SpeechClientStatus = "off";
   public static player: AudioPlayer | null = null;
-  private static loadModelOnProgressCallback:
-    | ((event: LoadModelOnProgressEvent) => void)
-    | null = null;
+  private static loadModelOnProgressCallback: ((event: LoadModelOnProgressEvent) => void) | null =
+    null;
   private static generateOnProgressCallback: ((event: SpeechOnProgressEvent) => void) | null = null;
 
   static async loadModel(modelId: string, options: LoadModelOptions = {}): Promise<void> {
@@ -75,6 +75,49 @@ export class SpeechClient {
       this.player?.unlock();
       await WorkerClient.postMessage({
         type: "speech-generate",
+        options: workerOptions,
+      });
+      // console.log("SPEECH GENERATION COMPLETE");
+      this.player?.markGenerationComplete();
+      this.generateOnProgressCallback = null;
+      this.status = "idle";
+    } finally {
+      this.player?.unlock();
+    }
+  }
+
+  static async generateDialogue(options: SpeechGenerateDialogueOptions): Promise<void> {
+    if (this.status === "terminating-generate") {
+      const inputText = options.segments.map((e) => e.text).join(" ");
+
+      console.warn(
+        `Received multiple SpeechClient.generate(...) calls in rapid succession. Ignoring most recent generate call with input text "${inputText.length > 100 ? inputText.slice(0, 100) + "..." : inputText}".`,
+      );
+      return;
+    }
+
+    const wasGenerating = this.status === "generating";
+
+    this.player?.primeForUserGesture();
+    await this.player?.lock();
+    try {
+      await this.player?.resetForNewGeneration();
+
+      if (wasGenerating) {
+        this.status = "terminating-generate";
+        console.warn("TRYING TO TERMINATE EARLY");
+        await WorkerClient.postMessage({ type: "speech-terminate-early" });
+      }
+
+      this.status = "generating";
+      this.generateOnProgressCallback = options.onProgressCallback ?? null;
+      this.player?.setOnFinishedPlayingCallback(options.onFinishedPlayingCallback ?? null);
+
+      const { onProgressCallback, onFinishedPlayingCallback, ...workerOptions } = options;
+
+      this.player?.unlock();
+      await WorkerClient.postMessage({
+        type: "speech-generate-dialogue",
         options: workerOptions,
       });
       // console.log("SPEECH GENERATION COMPLETE");

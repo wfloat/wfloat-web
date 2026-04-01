@@ -10,6 +10,7 @@ import { SPEAKER_IDS, SpeechEmotion, VALID_EMOTIONS, VALID_SIDS } from "../speec
 import createSherpaModule from "../wasm/sherpa-onnx-wasm-main-tts.js";
 import {
   ModelAssetsResponse,
+  SpeechGenerateDialogueWorkerOptions,
   SpeechGenerateWorkerOptions,
   WorkerRequest,
   WorkerResponse,
@@ -311,13 +312,16 @@ async function handleSpeechGenerate(
 
     const chunkRuntimeSec = (performance.now() - tStartChunk) / 1000;
     tRuntime = performance.now() - tStart;
-    let phonemesPerSec = (preparedInput.textPhonemes[i].length - 4) / chunkRuntimeSec;
+    let phonemesPerSec = (preparedInput.textPhonemes[i].length - 2) / chunkRuntimeSec;
     let audioSecPerPhoneme =
-      result.samples.length / result.sampleRate / (preparedInput.textPhonemes[i].length - 4);
+      result.samples.length / result.sampleRate / (preparedInput.textPhonemes[i].length - 2);
     // phonemesPerSec = 30;
     const preventOverrunConstant = 0.75;
     phonemesPerSec *= preventOverrunConstant;
     audioSecPerPhoneme *= preventOverrunConstant;
+
+    console.log("phoneme per second", phonemesPerSec);
+
     const tPlayAudio =
       computeStartTime(preparedInput.textPhonemes, phonemesPerSec, audioSecPerPhoneme) * 1000;
     const rawChunkText = preparedInput.text[i] ?? "";
@@ -359,6 +363,200 @@ async function handleSpeechGenerate(
   postResponse({ id, type: "speech-generate-done" });
 }
 
+async function handleSpeechGenerateDialogue(
+  id: number,
+  options: SpeechGenerateDialogueWorkerOptions,
+): Promise<void> {
+  // this.status = "generating";
+  const sherpaModule = await getSherpaModule();
+
+  if (!TTS) {
+    throw new Error("SpeechClient is not created. Call SpeechClient.loadModel(...) first.");
+  }
+
+  const segments = options.segments;
+  if (!segments?.length) {
+    throw new Error("segments is required.");
+  }
+
+  let defaultSpeed = 1.0;
+  if (typeof options.speed === "number" && Number.isFinite(options.speed)) {
+    defaultSpeed = options.speed;
+  }
+
+  let silenceBetweenSegmentsSec = 0.2;
+  if (
+    typeof options.silenceBetweenSegmentsSec === "number" &&
+    Number.isFinite(options.silenceBetweenSegmentsSec) &&
+    options.silenceBetweenSegmentsSec >= 0
+  ) {
+    silenceBetweenSegmentsSec = options.silenceBetweenSegmentsSec;
+  }
+
+  const segmentsWithDefaults = segments.map((segment) => {
+    let emotion: SpeechEmotion = "neutral";
+    if (VALID_EMOTIONS.includes(segment.emotion as SpeechEmotion)) {
+      emotion = segment.emotion as SpeechEmotion;
+    }
+
+    let intensity = 0.5;
+    if (
+      typeof segment.intensity === "number" &&
+      Number.isFinite(segment.intensity) &&
+      segment.intensity >= 0 &&
+      segment.intensity <= 1
+    ) {
+      intensity = segment.intensity;
+    }
+
+    let speed = defaultSpeed;
+    if (typeof segment.speed === "number" && Number.isFinite(segment.speed)) {
+      speed = segment.speed;
+    }
+
+    let sentenceSilencePaddingSec = 0.1;
+    if (
+      typeof segment.sentenceSilencePaddingSec === "number" &&
+      Number.isFinite(segment.sentenceSilencePaddingSec) &&
+      segment.sentenceSilencePaddingSec >= 0
+    ) {
+      sentenceSilencePaddingSec = segment.sentenceSilencePaddingSec;
+    }
+
+    let sid = 0;
+    if (typeof segment.voiceId === "number") {
+      if (!Number.isInteger(segment.voiceId) || !VALID_SIDS.includes(segment.voiceId)) {
+        throw new Error(`Invalid numeric voiceId: ${segment.voiceId}`);
+      }
+      sid = segment.voiceId;
+    } else if (typeof segment.voiceId === "string") {
+      const voiceName = segment.voiceId.trim();
+      if (voiceName) {
+        const mappedSid = SPEAKER_IDS[voiceName];
+        if (mappedSid !== undefined) {
+          sid = mappedSid;
+        } else {
+          throw new Error(`Invalid string voiceId: ${voiceName}`);
+        }
+      }
+    }
+
+    return {
+      ...segment,
+      emotion,
+      intensity,
+      speed,
+      sentenceSilencePaddingSec,
+      sid,
+    };
+  });
+
+  // const text = segmentsWithDefaults.map((segment) => segment.text).join(" ");
+  // const firstSegment = segmentsWithDefaults[0];
+  // const emotion = firstSegment.emotion;
+  // const intensity = firstSegment.intensity;
+  // const speed = firstSegment.speed;
+  // const silencePaddingSec = firstSegment.silencePaddingEndSec;
+  // const sid = firstSegment.sid;
+
+  const preparedInputs = segmentsWithDefaults.map((e) =>
+    prepareWfloatText(
+      sherpaModule,
+      {
+        text: e.text,
+        emotion: e.emotion,
+        intensity: e.intensity,
+      },
+      TTS!.handle,
+    ),
+  );
+
+  // console.log("preparedInput", preparedInput);
+
+  let tRuntime = 0;
+  const tStart = performance.now();
+  let rawTextCursor = 0;
+
+  let progressIndex = 0;
+  let totalChunks = 0;
+  let textPhonemesFlattened: string[] = [];
+  for (let i = 0; i < segmentsWithDefaults.length; i++) {
+    for (let j = 0; j < preparedInputs[i].textClean.length; j++) {
+      totalChunks += 1;
+      textPhonemesFlattened.push(preparedInputs[i].textPhonemes[j]);
+    }
+  }
+
+  for (let i = 0; i < segmentsWithDefaults.length; i++) {
+    for (let j = 0; j < preparedInputs[i].textClean.length; j++) {
+      const tStartChunk = performance.now();
+      const textClean = preparedInputs[i].textClean[j];
+      const result = TTS.generate({
+        text: textClean,
+        sid: segmentsWithDefaults[i].sid,
+        speed: segmentsWithDefaults[i].speed,
+      });
+
+      progressIndex += 1;
+      const progress = progressIndex / totalChunks;
+
+      const chunkRuntimeSec = (performance.now() - tStartChunk) / 1000;
+      tRuntime = performance.now() - tStart;
+      let phonemesPerSec = (preparedInputs[i].textPhonemes[j].length - 2) / chunkRuntimeSec;
+      let audioSecPerPhoneme =
+        result.samples.length / result.sampleRate / (preparedInputs[i].textPhonemes[j].length - 2);
+      // phonemesPerSec = 30;
+      const preventOverrunConstant = 0.75;
+      phonemesPerSec *= preventOverrunConstant;
+      audioSecPerPhoneme *= preventOverrunConstant;
+
+      const tPlayAudio =
+        computeStartTime(textPhonemesFlattened, phonemesPerSec, audioSecPerPhoneme) * 1000;
+      const rawChunkText = preparedInputs[i].text[j] ?? "";
+      // const highlightStart = rawTextCursor;
+      // const highlightEnd = rawTextCursor + rawChunkText.length;
+      // rawTextCursor = highlightEnd;
+
+      await sleep(10);
+
+      if (EARLY_STOP_MESSAGE_ID) {
+        const earlyStopId = EARLY_STOP_MESSAGE_ID;
+        EARLY_STOP_MESSAGE_ID = null;
+        postResponse({ id, type: "speech-generate-done" });
+        console.log("called speech-generate-done EARLY");
+        postResponse({ id: earlyStopId, type: "speech-terminate-early-done" });
+        return;
+      }
+
+      // console.log(`📢TPLAYAUDIO: ${tPlayAudio}`);
+
+      let silencePaddingSec = segmentsWithDefaults[i].sentenceSilencePaddingSec;
+      if (j === preparedInputs[i].textClean.length - 1) {
+        silencePaddingSec = silenceBetweenSegmentsSec;
+      }
+
+      postResponse(
+        {
+          id,
+          type: "speech-generate-chunk",
+          samples: result.samples,
+          index: i,
+          silencePaddingSec,
+          progress,
+          tPlayAudio: tPlayAudio!,
+          tRuntime: tRuntime,
+          highlightStart: 0,
+          highlightEnd: 1,
+          text: rawChunkText,
+        },
+        // [result.samples.buffer],
+      );
+    }
+  }
+
+  postResponse({ id, type: "speech-generate-done" });
+}
+
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
 
@@ -371,6 +569,12 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     if (message.type === "speech-generate") {
       // CURRENT_GENERATE_ID = message.id;
       await handleSpeechGenerate(message.id, message.options);
+      return;
+    }
+
+    if (message.type === "speech-generate-dialogue") {
+      // CURRENT_GENERATE_ID = message.id;
+      await handleSpeechGenerateDialogue(message.id, message.options);
       return;
     }
 

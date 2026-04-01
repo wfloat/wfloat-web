@@ -44,6 +44,23 @@ export type SpeechGenerateOptions = {
   onFinishedPlayingCallback?: () => void;
 };
 
+export type SpeechSegment = {
+  voiceId?: string | number;
+  text: string;
+  emotion?: SpeechEmotion | string;
+  intensity?: number;
+  speed?: number;
+  sentenceSilencePaddingSec?: number;
+};
+
+export type SpeechGenerateDialogueOptions = {
+  segments: SpeechSegment[];
+  speed?: number;
+  silenceBetweenSegmentsSec?: number;
+  onProgressCallback?: (event: SpeechOnProgressEvent) => void;
+  onFinishedPlayingCallback?: () => void;
+};
+
 export type LoadModelOptions = {
   onProgressCallback?: (event: LoadModelOnProgressEvent) => void;
 };

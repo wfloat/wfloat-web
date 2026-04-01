@@ -1,8 +1,13 @@
-import { LoadModelOnProgressEvent, SpeechGenerateOptions } from "../speech/speechTypes";
+import {
+  LoadModelOnProgressEvent,
+  SpeechGenerateOptions,
+  SpeechGenerateDialogueOptions,
+} from "../speech/speechTypes";
 
 export type WorkerRequestTemplate =
   | { type: "speech-load-model"; modelId: string }
   | { type: "speech-generate"; options: SpeechGenerateWorkerOptions }
+  | { type: "speech-generate-dialogue"; options: SpeechGenerateDialogueWorkerOptions }
   | { type: "speech-terminate-early" };
 
 export type WorkerRequest = WorkerRequestTemplate & { id: number };
@@ -27,7 +32,15 @@ export type WorkerResponse =
     }
   | { id: number; type: "speech-terminate-early-done" };
 
-export type SpeechGenerateWorkerOptions = Omit<SpeechGenerateOptions, "onProgressCallback">;
+export type SpeechGenerateWorkerOptions = Omit<
+  SpeechGenerateOptions,
+  "onProgressCallback" | "onFinishedPlayingCallback"
+>;
+
+export type SpeechGenerateDialogueWorkerOptions = Omit<
+  SpeechGenerateDialogueOptions,
+  "onProgressCallback" | "onFinishedPlayingCallback"
+>;
 
 export type GetModelAssetsArgs = {
   modelId: string;
