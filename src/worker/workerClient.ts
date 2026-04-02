@@ -66,14 +66,14 @@ export class WorkerClient {
         // For the final chunk, leaving the gate closed can deadlock playback:
         // the chunk stays buffered, nothing schedules, and finished never fires.
         const shouldStart = message.progress >= 1 || message.tRuntime >= message.tPlayAudio;
-        if (shouldStart) {
+        if (shouldStart && !player.isStartGateOpen) {
           // Open the gate so scheduling begins *but only if the user hasn't paused*.
           // (If the user never pressed Play, this will just buffer until they do.)
           player.setStartGateOpen(true);
-        }
-        if (shouldStart && !player.isPausedByUser) {
-          console.log("calling play");
-          void player.play();
+          if (!player.isPausedByUser) {
+            console.log("calling play");
+            void player.play();
+          }
         }
 
         // // const state = AudioPlayer.getState();

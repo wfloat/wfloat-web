@@ -320,8 +320,6 @@ async function handleSpeechGenerate(
     phonemesPerSec *= preventOverrunConstant;
     audioSecPerPhoneme *= preventOverrunConstant;
 
-    console.log("phoneme per second", phonemesPerSec);
-
     const tPlayAudio =
       computeStartTime(preparedInput.textPhonemes, phonemesPerSec, audioSecPerPhoneme) * 1000;
     const rawChunkText = preparedInput.text[i] ?? "";
