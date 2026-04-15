@@ -5,7 +5,7 @@ import {
 } from "../speech/speechTypes";
 
 export type WorkerRequestTemplate =
-  | { type: "speech-load-model"; modelId: string }
+  | { type: "speech-load-model"; modelId: string; persistentId?: string }
   | { type: "speech-generate"; options: SpeechGenerateWorkerOptions }
   | { type: "speech-generate-dialogue"; options: SpeechGenerateDialogueWorkerOptions }
   | { type: "speech-terminate-early" };
@@ -13,7 +13,7 @@ export type WorkerRequestTemplate =
 export type WorkerRequest = WorkerRequestTemplate & { id: number };
 
 export type WorkerResponse =
-  | { id: number; type: "speech-load-model-done"; sampleRate: number }
+  | { id: number; type: "speech-load-model-done"; sampleRate: number; persistentId?: string }
   | { id: number; type: "speech-load-model-progress"; event: LoadModelOnProgressEvent }
   | { id: number; type: "speech-generate-done" }
   | { id: number; type: "request-error"; error: string }
@@ -53,4 +53,5 @@ export type ModelAssetsResponse = {
   model_tokens: string;
   wasm_binary: string;
   wasm_data: string;
+  persistent_id?: string;
 };

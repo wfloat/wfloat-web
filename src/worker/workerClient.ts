@@ -12,7 +12,7 @@ export class WorkerClient {
   private static initialized = false;
   private static pending = new Map<
     number,
-    { resolve: (value: unknown) => void; reject: (err: Error) => void }
+    { resolve: (value: WorkerResponse) => void; reject: (err: Error) => void }
   >();
 
   private static init(): void {
@@ -139,10 +139,10 @@ export class WorkerClient {
     };
   }
 
-  static async postMessage(workerRequestTemplate: WorkerRequestTemplate) {
+  static async postMessage(workerRequestTemplate: WorkerRequestTemplate): Promise<WorkerResponse> {
     this.init();
 
-    return new Promise((resolve, reject) => {
+    return new Promise<WorkerResponse>((resolve, reject) => {
       this.pending.set(this.id, { resolve, reject });
 
       const request: WorkerRequest = {

@@ -8,6 +8,7 @@ import {
   SpeechOnProgressEvent,
 } from "./speechTypes.js";
 import { WorkerClient } from "../worker/workerClient.js";
+import { getPersistentId, setPersistentId } from "../util/persistentIdStorage.js";
 
 export class SpeechClient {
   private static status: SpeechClientStatus = "off";
@@ -25,10 +26,17 @@ export class SpeechClient {
       this.status = "loading-model";
       this.loadModelOnProgressCallback = options.onProgressCallback ?? null;
       try {
-        await WorkerClient.postMessage({
+        const cachedPersistentId = getPersistentId();
+        console.log(`persisted id here: ${cachedPersistentId}`);
+        const response = await WorkerClient.postMessage({
           type: "speech-load-model",
           modelId,
+          ...(cachedPersistentId ? { persistentId: cachedPersistentId } : {}),
         });
+        if (response.type !== "speech-load-model-done") {
+          throw new Error(`Unexpected worker response type: ${response.type}`);
+        }
+        setPersistentId(response.persistentId);
         this.player = new AudioPlayer({
           inputSampleRate: 22050,
           scheduleAheadSec: 0.5,

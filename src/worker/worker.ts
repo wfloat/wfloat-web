@@ -47,14 +47,17 @@ async function getModelAssets(
   modelId: string,
   platform: string,
   version: string,
+  persistentId?: string,
 ): Promise<ModelAssetsResponse> {
-  const params = new URLSearchParams({
-    model_id: modelId,
-    platform,
-    version,
-  });
+  const params = new URLSearchParams();
+  params.set("model_id", modelId);
+  params.set("platform", platform);
+  params.set("version", version);
+  if (persistentId) {
+    params.set("persistent_id", persistentId);
+  }
 
-  const HOST = "https://wfloat.com"; // "http://localhost:4000";
+  const HOST = "https://wfloat.com";
   const response = await fetch(`${HOST}/api/model-assets?${params.toString()}`, {
     method: "GET",
     headers: {
@@ -83,10 +86,14 @@ function postResponse(message: WorkerResponse, transfer: Transferable[] = []): v
   ).postMessage(message, transfer);
 }
 
-async function handleLoadSpeechModel(id: number, modelId: string): Promise<void> {
+async function handleLoadSpeechModel(
+  id: number,
+  modelId: string,
+  persistentId?: string,
+): Promise<void> {
   const PLATFORM = "web";
   const VERSION = "1.2.1";
-  MODEL_ASSET_URLS = await getModelAssets(modelId, PLATFORM, VERSION);
+  MODEL_ASSET_URLS = await getModelAssets(modelId, PLATFORM, VERSION, persistentId);
   const MODEL_NAME = new URL(MODEL_ASSET_URLS!.model_onnx).pathname.split("/").pop();
   const TOKENS_NAME = new URL(MODEL_ASSET_URLS!.model_tokens).pathname.split("/").pop();
 
@@ -175,7 +182,7 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
   const tokensText = await tokensResponse.text();
   sherpaModule.FS.writeFile(`/${TOKENS_NAME}`, tokensText);
 
-  console.log(sherpaModule.FS.readdir("/"));
+  // console.log(sherpaModule.FS.readdir("/"));
 
   postResponse({
     id,
@@ -202,9 +209,14 @@ async function handleLoadSpeechModel(id: number, modelId: string): Promise<void>
     maxNumSentences: 1,
   });
 
-  console.log(TTS);
+  // console.log(TTS);
 
-  postResponse({ id, type: "speech-load-model-done", sampleRate: TTS.sampleRate });
+  postResponse({
+    id,
+    type: "speech-load-model-done",
+    sampleRate: TTS.sampleRate,
+    persistentId: MODEL_ASSET_URLS.persistent_id,
+  });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -560,7 +572,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
   try {
     if (message.type === "speech-load-model") {
-      await handleLoadSpeechModel(message.id, message.modelId);
+      await handleLoadSpeechModel(message.id, message.modelId, message.persistentId);
       return;
     }
 
