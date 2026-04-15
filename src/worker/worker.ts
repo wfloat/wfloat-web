@@ -92,7 +92,7 @@ async function handleLoadSpeechModel(
   persistentId?: string,
 ): Promise<void> {
   const PLATFORM = "web";
-  const VERSION = "1.2.1";
+  const VERSION = "1.3.0";
   MODEL_ASSET_URLS = await getModelAssets(modelId, PLATFORM, VERSION, persistentId);
   const MODEL_NAME = new URL(MODEL_ASSET_URLS!.model_onnx).pathname.split("/").pop();
   const TOKENS_NAME = new URL(MODEL_ASSET_URLS!.model_tokens).pathname.split("/").pop();
