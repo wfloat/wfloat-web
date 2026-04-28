@@ -3,9 +3,10 @@ import {
   LoadModelOnProgressEvent,
   LoadModelOptions,
   SpeechClientStatus,
+  SpeechGenerateDialogueProgressEvent,
   SpeechGenerateOptions,
   SpeechGenerateDialogueOptions,
-  SpeechOnProgressEvent,
+  SpeechGenerateProgressEvent,
 } from "./speechTypes.js";
 import { WorkerClient } from "../worker/workerClient.js";
 import { getPersistentId, setPersistentId } from "../util/persistentIdStorage.js";
@@ -15,7 +16,11 @@ export class SpeechClient {
   public static player: AudioPlayer | null = null;
   private static loadModelOnProgressCallback: ((event: LoadModelOnProgressEvent) => void) | null =
     null;
-  private static generateOnProgressCallback: ((event: SpeechOnProgressEvent) => void) | null = null;
+  private static generateOnProgressCallback: ((event: SpeechGenerateProgressEvent) => void) | null =
+    null;
+  private static generateDialogueOnProgressCallback:
+    | ((event: SpeechGenerateDialogueProgressEvent) => void)
+    | null = null;
 
   static async loadModel(modelId: string, options: LoadModelOptions = {}): Promise<void> {
     if (this.status === "loading-model") {
@@ -27,7 +32,7 @@ export class SpeechClient {
       this.loadModelOnProgressCallback = options.onProgressCallback ?? null;
       try {
         const cachedPersistentId = getPersistentId();
-        console.log(`persisted id here: ${cachedPersistentId}`);
+        // console.log(`persisted id here: ${cachedPersistentId}`);
         const response = await WorkerClient.postMessage({
           type: "speech-load-model",
           modelId,
@@ -76,6 +81,7 @@ export class SpeechClient {
 
       this.status = "generating";
       this.generateOnProgressCallback = options.onProgressCallback ?? null;
+      this.generateDialogueOnProgressCallback = null;
       this.player?.setOnFinishedPlayingCallback(options.onFinishedPlayingCallback ?? null);
 
       const { onProgressCallback, onFinishedPlayingCallback, ...workerOptions } = options;
@@ -118,7 +124,8 @@ export class SpeechClient {
       }
 
       this.status = "generating";
-      this.generateOnProgressCallback = options.onProgressCallback ?? null;
+      this.generateOnProgressCallback = null;
+      this.generateDialogueOnProgressCallback = options.onProgressCallback ?? null;
       this.player?.setOnFinishedPlayingCallback(options.onFinishedPlayingCallback ?? null);
 
       const { onProgressCallback, onFinishedPlayingCallback, ...workerOptions } = options;
@@ -130,7 +137,7 @@ export class SpeechClient {
       });
       // console.log("SPEECH GENERATION COMPLETE");
       this.player?.markGenerationComplete();
-      this.generateOnProgressCallback = null;
+      this.generateDialogueOnProgressCallback = null;
       this.status = "idle";
     } finally {
       this.player?.unlock();
@@ -161,8 +168,14 @@ export class SpeechClient {
     await this.player.pause();
   }
 
-  static getOnProgressCallback(): ((event: SpeechOnProgressEvent) => void) | null {
+  static getGenerateOnProgressCallback(): ((event: SpeechGenerateProgressEvent) => void) | null {
     return this.generateOnProgressCallback;
+  }
+
+  static getGenerateDialogueOnProgressCallback():
+    | ((event: SpeechGenerateDialogueProgressEvent) => void)
+    | null {
+    return this.generateDialogueOnProgressCallback;
   }
 
   static getLoadModelOnProgressCallback(): ((event: LoadModelOnProgressEvent) => void) | null {

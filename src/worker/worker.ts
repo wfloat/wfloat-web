@@ -92,7 +92,7 @@ async function handleLoadSpeechModel(
   persistentId?: string,
 ): Promise<void> {
   const PLATFORM = "web";
-  const VERSION = "1.3.0";
+  const VERSION = "1.5.0";
   MODEL_ASSET_URLS = await getModelAssets(modelId, PLATFORM, VERSION, persistentId);
   const MODEL_NAME = new URL(MODEL_ASSET_URLS!.model_onnx).pathname.split("/").pop();
   const TOKENS_NAME = new URL(MODEL_ASSET_URLS!.model_tokens).pathname.split("/").pop();
@@ -485,8 +485,6 @@ async function handleSpeechGenerateDialogue(
 
   let tRuntime = 0;
   const tStart = performance.now();
-  let rawTextCursor = 0;
-
   let progressIndex = 0;
   let totalChunks = 0;
   let textPhonemesFlattened: string[] = [];
@@ -498,6 +496,8 @@ async function handleSpeechGenerateDialogue(
   }
 
   for (let i = 0; i < segmentsWithDefaults.length; i++) {
+    let rawTextCursor = 0;
+
     for (let j = 0; j < preparedInputs[i].textClean.length; j++) {
       const tStartChunk = performance.now();
       const textClean = preparedInputs[i].textClean[j];
@@ -523,9 +523,9 @@ async function handleSpeechGenerateDialogue(
       const tPlayAudio =
         computeStartTime(textPhonemesFlattened, phonemesPerSec, audioSecPerPhoneme) * 1000;
       const rawChunkText = preparedInputs[i].text[j] ?? "";
-      // const highlightStart = rawTextCursor;
-      // const highlightEnd = rawTextCursor + rawChunkText.length;
-      // rawTextCursor = highlightEnd;
+      const highlightStart = rawTextCursor;
+      const highlightEnd = rawTextCursor + rawChunkText.length;
+      rawTextCursor = highlightEnd;
 
       await sleep(10);
 
@@ -555,8 +555,9 @@ async function handleSpeechGenerateDialogue(
           progress,
           tPlayAudio: tPlayAudio!,
           tRuntime: tRuntime,
-          highlightStart: 0,
-          highlightEnd: 1,
+          highlightStart,
+          highlightEnd,
+          textHighlightSegment: i,
           text: rawChunkText,
         },
         // [result.samples.buffer],

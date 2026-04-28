@@ -15,13 +15,23 @@ export type SpeechClientStatus =
   | "idle"
   | "terminating-generate";
 
-export type SpeechOnProgressEvent = {
+export type SpeechProgressEventBase = {
   progress: number;
   isPlaying: boolean;
   textHighlightStart: number;
   textHighlightEnd: number;
   text: string;
 };
+
+export type SpeechGenerateProgressEvent = SpeechProgressEventBase;
+
+export type SpeechGenerateDialogueProgressEvent = SpeechProgressEventBase & {
+  textHighlightSegment: number;
+};
+
+export type SpeechOnProgressEvent =
+  | SpeechGenerateProgressEvent
+  | SpeechGenerateDialogueProgressEvent;
 
 export type LoadModelOnProgressEvent =
   | {
@@ -40,7 +50,7 @@ export type SpeechGenerateOptions = {
   intensity?: number;
   speed?: number;
   silencePaddingSec?: number;
-  onProgressCallback?: (event: SpeechOnProgressEvent) => void;
+  onProgressCallback?: (event: SpeechGenerateProgressEvent) => void;
   onFinishedPlayingCallback?: () => void;
 };
 
@@ -57,7 +67,7 @@ export type SpeechGenerateDialogueOptions = {
   segments: SpeechSegment[];
   speed?: number;
   silenceBetweenSegmentsSec?: number;
-  onProgressCallback?: (event: SpeechOnProgressEvent) => void;
+  onProgressCallback?: (event: SpeechGenerateDialogueProgressEvent) => void;
   onFinishedPlayingCallback?: () => void;
 };
 

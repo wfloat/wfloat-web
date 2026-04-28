@@ -47,17 +47,26 @@ export class WorkerClient {
         const player = SpeechClient.player;
         if (!player || player.isLocked) return;
 
-        const onProgressCallback = SpeechClient.getOnProgressCallback();
+        const generateOnProgressCallback = SpeechClient.getGenerateOnProgressCallback();
+        const generateDialogueOnProgressCallback =
+          SpeechClient.getGenerateDialogueOnProgressCallback();
         player.enqueue(message.samples, CHUNK_SAMPLE_RATE, () => {
-          if (!onProgressCallback) return;
-
-          onProgressCallback({
+          const progressEvent = {
             progress: message.progress,
             isPlaying: player.isPlaying,
             textHighlightStart: message.highlightStart,
             textHighlightEnd: message.highlightEnd,
             text: message.text,
-          });
+          };
+
+          if (typeof message.textHighlightSegment === "number") {
+            generateDialogueOnProgressCallback?.({
+              ...progressEvent,
+              textHighlightSegment: message.textHighlightSegment,
+            });
+          } else {
+            generateOnProgressCallback?.(progressEvent);
+          }
         });
         if (message.progress < 1 && message.silencePaddingSec > 0) {
           player.enqueueSilence(message.silencePaddingSec, CHUNK_SAMPLE_RATE);

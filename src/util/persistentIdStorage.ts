@@ -27,7 +27,7 @@ export function getPersistentId(): string | null {
 export function setPersistentId(persistentId: string | null | undefined): void {
   if (!persistentId) return;
 
-  console.log(persistentId);
+  // console.log(persistentId);
 
   const storage = getBrowserStorage();
   if (!storage) return;
