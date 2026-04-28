@@ -1,6 +1,6 @@
 # @wfloat/wfloat-web
 
-`@wfloat/wfloat-web` is the browser package for Wfloat text-to-speech. It downloads the model and runtime assets the first time a user loads a model, caches them in the browser, and runs speech generation locally in the app.
+`@wfloat/wfloat-web` is the browser package for Wfloat text-to-speech. Use it to turn text into spoken audio on your website.
 
 ## Install
 

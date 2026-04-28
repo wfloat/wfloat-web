@@ -1,6 +1,6 @@
 {
-  "name": "wfloat-web",
-  "version": "1.5.0",
+  "name": "@wfloat/wfloat-web",
+  "version": "1.5.1",
   "description": "",
   "repository": {
     "type": "git",
