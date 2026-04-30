@@ -14,7 +14,7 @@ yarn add @wfloat/wfloat-web
 
 ## Quick start
 
-Your `modelId` is the **Model Credential** shown in your Wfloat account after purchase.
+Your `modelId` is the **Model Credential** shown in your Wfloat account after sign up.
 
 ```ts
 import { SpeechClient } from "@wfloat/wfloat-web";
