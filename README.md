@@ -2,6 +2,8 @@
 
 `@wfloat/wfloat-web` is the browser package for Wfloat text-to-speech. Use it to turn text into spoken audio on your website.
 
+Browser demo to hear how it sounds: https://wfloat.com/demo
+
 ## Install
 
 ```bash
