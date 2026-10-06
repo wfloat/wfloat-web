@@ -1,5 +1,8 @@
 # @wfloat/wfloat-web
 
+> [!IMPORTANT]
+> **This repository is deprecated.** Development has moved to [wfloat/wfloat](https://github.com/wfloat/wfloat).
+
 `@wfloat/wfloat-web` is the browser package for Wfloat text-to-speech. Use it to turn text into spoken audio on your website.
 
 Browser demo to hear how it sounds: https://wfloat.com/demo
